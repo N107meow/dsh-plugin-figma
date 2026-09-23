@@ -204,17 +204,37 @@ fileKey `Zz9Yy8Xx7Ww6Vv5Uu4Tt3S`，`link_access: plan_edit`，20 个顶层画板
 
 两个信号说明投影**没有把主题压平**：① 两版配色集合不同（9 vs 12）；② 中性色整体位移到深灰阶（`#2C3135`/`#292E33`/`#1F2327`/`#16191C`），而**品牌绿 `#29CB97` 在两版里都不变**——这正是设计系统该有的行为。字体两版一致（`Roboto 400 14/20/36px`），文本也一致（`Top places`、`60%`、`9.8%`）。
 
-**(2) ⚠️ 新坑：`depth` 参数会让文件级组件表"消失"。**
+**(2) ⚠️【已修正】关于 `depth` 与文件级组件表——我上一轮的推断是错的。**
 
-`GET /v1/files/:key` 的响应里，**`components` / `componentSets` / `styles` 三个 map 只有在不传 `depth` 时才被填充**：
+上一轮我看到三个 depth 下 `components` 都是 0 项，**推断是"`depth` 抑制了组件表的填充"**。用户把两个画板转成组件后重测，证明**这个推断是错的**：
 
-| 请求 | 结果 |
-|---|---|
-| `/files/:key`（不传 depth） | `components` / `componentSets` / `styles` 是**空的**（0 项） |
-| `/files/:key?depth=1` | 三个 map 仍是 **0 项**，且 `document` 只剩页面骨架（985 bytes） |
-| `/files/:key?depth=2` | 三个 map 仍是 **0 项**（26,449 bytes） |
+| 请求 | 响应体 | `components` | `componentSets` | `styles` |
+|---|---|---|---|---|
+| `/files/:key`（不传 depth） | **5,547,625 B** | **2** | 0 | 0 |
+| `/files/:key?depth=1` | 969 B | **0** | 0 | 0 |
+| `/files/:key?depth=2` | 26,948 B | **2** | 0 | 0 |
+| `/files/:key?depth=3` | 105,611 B | **2** | 0 | 0 |
 
-> **但这不一定意味着文件里没有组件。** 官方文档说 `components` 是"node ID → 组件元数据"的映射，用于判断实例来源；而 `depth` 控制的是文档树遍历。**所以 `depth` 很可能同时抑制了这些映射的填充**——即"想要文件级组件清单，就不能给 `depth`"。这个推断**尚未用有组件的文件验证**，但已足以决定接口设计：**组件清单应当走专用端点，而不是从 `/files` 的 map 里捞**。实测确认 `GET /v1/files/:key/component_sets` 返回 `200 {"error":false,"status":200,"meta":{"component_sets":[]}}`——**注意它的结构是 `meta.component_sets`，与 `/files` 里的顶层 map 不同**，这是个容易写错的地方。
+**真实规律**：`depth=1` 只返回页面 canvas、**不含任何实际内容**，所以那时没有组件可报告——表是"因为内容里没有组件"而空，不是因为 `depth` 抑制了填充。**`depth≥2` 时组件表正常填充。**
+
+> **教训（已写进 §11 纪律清单第 10 条）**：上一轮我从"三个 depth 都返回 0"推出"depth 抑制组件表"，**这个推断超出了证据**——它无法区分"被抑制"和"本来就没有"。用**改变输入**（真的加两个组件）来验证假设，而不是从同一组零值里推因果，是唯一可靠的判别方式。
+
+顺带得到准确数字：**这个文件全量 `document` 树是 5.55 MB**（此前只有 `Design File A` 的 1.31 MB 作参考）。
+
+**(2b) 组件语义实测：节点信息齐全，但还没有"使用"组件。**
+
+用户转成组件的两个画板：`7:8` = `Dark - Dashboard - 10`，`9:10` = `Light - Dashboard - 10`。实测：
+
+- **节点 id 不变**，但 `type` 从 `FRAME` 变成 **`COMPONENT`**（`9:10` 实测 `type: "COMPONENT"`）——投影器**必须把 `type` 当判据**，不能假设"顶层画板都是 FRAME"；
+- **`components` map 的元数据字段全集**（实测，比文档更具体）：`key` / `name` / `description` / `remote` / `documentationLinks`。**没有 `componentSetId`、没有变体属性、没有尺寸**——想知道"属于哪个组件集/有哪些变体"，这些字段靠不住；
+- **`containingFrame` 字段不存在**（文档提到过），不要依赖；
+- **`componentId` 只出现在 `INSTANCE` 节点上**，`COMPONENT` 定义节点自己没有；
+- **文件里 `INSTANCE` 节点数 = 0** —— 用户只"声明"了组件，**还没在任何地方"使用"**。所以 `componentId` 这条路径**仍未验证**；
+- **`styles` 仍是 0**（未定义样式，节点上也无 `styleId` 引用）；
+- `/nodes` 响应里**每个节点条目自带 `components` map**（结构 `{document, components, componentSets, schemaVersion, styles}`），组件元数据随节点响应返回，不必单独请求；
+- `layoutGrids` 的颜色**也是 0–1 浮点 RGBA**（如 `{"r":0.72,…, "a":0.5}`）——处理网格线颜色时**同样适用"只取 rgb、`a` 是 alpha"规则**。
+
+> **对 P1 的结论**：`components` spec 可按上面实测字段集实现；但 **`INSTANCE` / `componentId` / 变体解析必须等文件里有真实实例才能验证**（在画板里"使用"一下这些组件即可）。`variables` 依旧是 403（缺 scope）。
 
 **(3) `variables/local` 确认需要额外 scope（P1 的降级路径实测到位）。**
 
@@ -237,11 +257,11 @@ fileKey `Zz9Yy8Xx7Ww6Vv5Uu4Tt3S`，`link_access: plan_edit`，20 个顶层画板
 
 `GET /v1/images/:key?ids=3:4&format=png&scale=1` → `200`，返回预签名 URL；下载得到 **264,688 bytes 的 PNG，1440×1024**（PNG IHDR 解析确认）。所以 §4.5(d) 的"取 URL → 立刻下载落盘 → 内容寻址命名 → 回传本地路径 + 持久 image block"链路成立。
 
-**(6) 这个文件其实不是"组件丰富"的设计系统。**
+**(6) 这个文件是视觉稿，不是装配式设计系统（用户后续补了两个组件，见 (2b)）。**
 
-实测 `components: 0`、`componentSets: 0`、`component_sets` 端点返回空数组、投影后 **`component instances: 0`**、**没有 `styleId`**。它是**一套视觉稿/资源稿**（20 个仪表盘稿），不是装配了 Figma 组件的设计系统——所以它**无法验证 P1 的组件/实例/样式语义**。
+初次实测：`components: 0`、`componentSets: 0`、投影后 **`component instances: 0`**、**没有 `styleId`**。它本质是**一套视觉稿/资源稿**（20 个仪表盘稿），而非装配了 Figma 组件的设计系统。用户随后把两个画板转成组件（`7:8` / `9:10`），于是 `components` 变成 2 项——但 **`INSTANCE` 仍为 0、`componentSets` 仍为 0、`styles` 仍为 0**。
 
-> **结论：P1 需要另找一只真正装配了 Components / Component Sets / Styles 的文件。** 但本轮并非白跑——它把**主题化配色**这条最容易出错的路径验证扎实了，还暴露了上面 (2)(4) 两个坑。
+> **结论：P1 的 `components` 清单可以验证；但「实例引用 / 组件集 / 变体 / 样式」四条路径仍缺素材。** 验证它们需要在画板里**使用**这些组件（产生 `INSTANCE`），并定义至少一个 Style 和一个 Component Set（变体）。本轮的价值在于把**主题化配色**验证扎实，并纠正了一个我自己犯的推断错误（见 (2) 的教训）。
 
 ### 1.5 动态 `depth` 策略（由 §1.4 的规模问题推出）
 
@@ -818,7 +838,9 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 - `figma://` 作为 session reference 时自动注入文件摘要
 - 把能力清单生成到 `docs/CAPABILITIES.md`（从 spec 表自动导出，永不与代码脱节）
 
-**验收**：能回答"这个设计系统里 Button 有几个变体、各自的圆角和配色是什么"；能列出变量集合与模式（需企业版，非企业版给出明确说明而非报错）。
+**验收（分两级，因为素材限制）**：
+- **现在可验收**：对 `Zz9Yy8Xx7Ww6Vv5Uu4Tt3S` 报出组件清单——`7:8` `Dark - Dashboard - 10`、`9:10` `Light - Dashboard - 10`，含各自 `key`；并断言**没有** `componentSetId` / 变体属性的字段假设（§1.4(2b) 的实测字段全集）；
+- **需要补素材才能验收**：组件实例引用（`INSTANCE.componentId`）、组件集与变体、样式引用（`styleId`）。素材条件：在画板里**使用**已声明的组件、建一个 Component Set（变体）、定义一个 Style。`variables` 另需 `file_variables:read` scope（当前 403）。
 
 ### P2 — MCP 适配器（可移植性）
 
@@ -871,7 +893,7 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 | **静默取错颜色**（`color.a` 被当成透明度） | 模型读到错误配色，且不报错 | §1.3 第 7 条：hex 只取 rgb、opacity 只读 `fill.opacity`；半透明样本进回归测试 |
 | 长会话里文档树反复被拉取 | 额度耗尽 | 默认 `depth` 限制 + LRU/TTL 60s + 同参单飞；**注意 `ETag`/304 不可用（已实测），缓存只能靠 TTL** |
 | **单画板就 ~9,800 tokens**（实测） | 20 个画板全读 ≈ 196k tokens，必然爆上下文 | §1.5 动态 depth + 预算驱动收紧 + 骨架降级 + 强制 spool；结果 meta 回报成本让模型自我收窄 |
-| **`depth` 抑制文件级组件表**（实测） | 取组件清单取到空集，误判"此文件无组件" | §1.4(2)：组件清单走专用端点 `/files/:key/component_sets`（注意结构是 `meta.component_sets`），不做从 `/files` map 捞的假设 |
+| ~~`depth` 抑制文件级组件表~~ **（推断已被推翻，见 §1.4(2)）** | — | 原对策作废：`depth≥2` 组件表正常填充；`depth=1` 只是"没有内容可报告"。真正的教训是**别从零值推因果** |
 | 模型幻觉出不存在的 op | 无意义失败 | registry 白名单校验，错误里回带可用 op 列表 |
 | 节点 id 的 `-`/`:` 混淆 | 高频低级失败 | 由 `target` URL 解析统一承担，并在错误里给出正确写法 |
 | 企业版 API（变量）权限 | 421/403 难懂 | 单独 spec + 明确 remedy 文案，不与其他错误混同 |
@@ -1005,6 +1027,7 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 | 7 | 跨组件通信只走 `ctx`（服务/事件），不 import 彼此实现 | observational equivalence | 适配器之间零 import；`core` 只暴露接口 |
 | 8 | 卸载后不得残留对模型的可见影响 | observational equivalence | 卸载插件后 `Tool.listTools` 必须回到装载前的工具集（做一次快照 diff） |
 | 9 | **只读**：registry 中不存在写能力，派发前断言 `method === 'GET'` | 项目决策（§9.2） | CI 断言：所有 spec 的 `method` 均为 `GET`；故意注入一条 `POST` spec，运行期必须拒绝 |
+| 10 | **不从零值推断因果**：任何"字段为空"的结论都必须先用**改变输入**验证 | §1.4(2) 的教训 | 遇到可疑空集时，先构造/索取一个非空样本重测，再下结论；写进 issue 模板 |
 
 > 这张表的实际价值在第 6 条和第 8 条上：它们是最容易被"先跑通再说"牺牲掉的两条，而恰恰是它们决定了插件能不能在长跑的 harness 里共处。
 
