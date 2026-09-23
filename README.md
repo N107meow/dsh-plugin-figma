@@ -4,7 +4,7 @@
 
 > **当前状态：设计定稿，尚未开始编码（等待开工指令）。**
 >
-> 已确定的决策：包名 **`dsh-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **只发 GitHub**，不发 npm。
+> 已确定的决策：包名 **`dsh-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**（包名待定，见下）。
 >
 > P0 范围已冻结，见 `docs/PLAN.md` §9.1.3。
 
@@ -98,31 +98,41 @@ Figma 的两种令牌差别很大，选对了就省事：
 
 将来若需要 MCP 入口，补回来约 60–100 行、**不需要重构** —— 因为 `core` 保持协议无关，且这是被 CI 守住的架构不变量（`core` 无 `@deepseek-ai/*` 依赖、无 `ctx`、接口宿主中立），不是口头承诺。详见 `docs/PLAN.md` §12.3.1。
 
-### 分发：只发 GitHub
+### 分发：npm + GitHub 双通道
 
-不发 npm。**主路径 = clone + `link:`，已端到端实测通过**：
+**通道一 · npm（最省事，推荐）**
 
 ```bash
-# 1. 拿到代码
-git clone <repo> ~/dsh-figma
-
-# 2. 在 DSH profile 里装上
-cd ~/.dsh/profiles/web
-pnpm add link:~/dsh-figma
-
-# 3. 配令牌：~/.dsh/.credentials.yaml 的 refs 下加 FIGMA_TOKEN
-# 4. 挂载：cordis.patch.yml 里 insert
-#      - insert:
-#          - id: figma
-#            name: 'dsh-figma'
-# 5. 重启后用 figma_doctor 自检
+dsh plugin --profile web add <包名>
 ```
 
-实测结论（在隔离 profile 上验证，未动正在使用的 profile）：裸包名可从 profile 的 `node_modules` 解析 ✅ · insert 行进入组合 ✅ · **插件真的加载并激活** ✅ · **卸载时 disposer 执行** ✅ · 无加载错误 ✅
+> ⚠️ 包名待定：**`dsh-figma` 在 npm 上已被他人占用**（`dushaobindoudou` 于 2026-08-19 发布 `0.0.1` 占位版，做的是同类项目）。候选与建议见 `docs/PLAN.md` §9.1.2。
 
-**`pnpm add github:<user>/dsh-figma` 未在本机验证** —— GitHub 可达但吞吐极低（git 报 `Less than 1000 bytes/sec`），所以只作为备选，请你自行验证。
+**通道二 · GitHub（不占 npm 名）**
 
-> 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整），否则用户装到的是空包。
-> 也因此**仓库根就是包根**（单一平铺包，不用 workspace）—— 否则 `github:` 安装会拿到没有 `name: dsh-figma` 的仓库根。
+```bash
+cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-figma
+```
+
+> 未在本机验证 —— GitHub 可达但吞吐极低（git 报 `Less than 1000 bytes/sec`）。你的网络更好，请自行确认。
+
+**通道三 · clone + link（已实测通过，最快路径）**
+
+```bash
+git clone <repo> ~/dsh-figma
+cd ~/.dsh/profiles/web && pnpm add link:~/dsh-figma
+```
+
+然后在 `cordis.patch.yml` 里 insert：
+
+```yaml
+- insert:
+    - id: figma
+      name: '<包名>'
+```
+
+**装配已端到端实测**（在隔离 profile 上验证，未动正在使用的 profile）：裸包名可从 profile 的 `node_modules` 解析 ✅ · insert 行进入组合 ✅ · **插件真的加载并激活** ✅ · **卸载时 disposer 执行** ✅ · 无加载错误 ✅
+
+> 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整）。也因此**仓库根就是包根**（单一平铺包，不用 workspace）—— 否则 `github:` 安装会拿到没有 `name` 的仓库根。
 
 > ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**。完整清单见 `docs/PLAN.md` §12.10。
