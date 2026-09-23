@@ -67,3 +67,11 @@ Figma 的两种令牌差别很大，选对了就省事：
 
 - Shi, Y., Zhang, W., Cui, T. — *A Programming Paradigm for Spatiotemporal Composability*, [arXiv:2608.25512](https://arxiv.org/abs/2608.25512)（北京大学 / DeepSeek-AI）。Cordis 的形式化基础，本方案的生命周期设计依据其 revertible effects / reactive coeffects 概念。
 - [Figma REST API 文档](https://developers.figma.com/docs/rest-api/) · [Figma Plugin API 文档](https://developers.figma.com/docs/plugins/api/api-reference/)
+
+### 令牌失效时会主动要求你换令牌
+
+插件**能检测**（Figma 返回 `401 Invalid token`）、**能提示**，但**不能替你自动申请** —— Figma 生成令牌时明文只显示一次，PAT 也不可刷新，新令牌必须由人粘贴回来。
+
+做法是把失效变成一条**活跃的补救指令**而不是失败的调用：工具返回结构化的 `token_invalid` + 具体步骤（去哪生成、勾哪些只读 scope、写到 `~/.dsh/.credentials.yaml` 的哪一行），并明确授权模型**主动找你换令牌、换完自动重试**。这样闭环是完整的。
+
+**做不到的**：提前预警。Figma 不通过 API 暴露令牌签发时间或剩余有效期，所以"还有 7 天过期就提醒你"没有实现路径，只能失效后反应式处理。详见 `docs/PLAN.md` §5.4.1。

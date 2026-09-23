@@ -358,9 +358,9 @@ figma_canvas({
 **限流参数为什么要写成"档位 × 席位"而不是一个数字。** Figma 的限流是三个因子的乘积：**席位类型**、**端点档位**、**资源所在套餐**。已确认席位是 Full/Dev，但套餐维度仍会咬人——官方原话是：用 PAT 请求一个 Starter 套餐里的文件，即使你在别的套餐有 Full 席位，该文件也是 **6 次/月**级别。所以：
 
 1. 默认按**最保守的 10/min** 起步（Starter 套餐下 Full 席位的 Tier 1 值），先安全再提速；
-2. 自检探针用 **`GET /v1/files/:key/meta`（Tier 3）**，不用 `GET /v1/me`——原因见 §4.4.1；
-3. 每次响应读 **`X-Figma-Rate-Limit-Type`**（`high`=Full/Dev，`low`=View/Collab），据此把桶的上限**动态上调或下调**——这比在配置里猜数字可靠，也能在用户换 token、跨套餐取文件时自动适应；
-4. `429` 一律以 `Retry-After` 为准覆盖本地估算。
+2. 自检探针用 **`GET /v1/files/:key/meta`（Tier 3）**，不用 `GET /v1/me`——**已实测**：本 token 的 scope 集合（`file_content:read`、`file_comments:read`、`library_content:read`、`library_assets:read`、`file_dev_resources:read`、`file_metadata:read`）**不含** `/v1/me` 所需的 `file_read` / `files:read` / `current_user:read`，实测返回 `403 Invalid scope: [...]`；而 `meta` 返回 `404 Not found`（说明认证通过、只是文件不存在），是正确的探针；
+3. **`429` 时**读 `X-Figma-Plan-Tier` / `X-Figma-Rate-Limit-Type`（`high`=Full/Dev，`low`=View/Collab）**与 `Retry-After`**，据此修正本地估算。
+   ⚠️ **已实测：这四个头只在 429 上出现**（成功响应不返回；它们出现在 `access-control-expose-headers` 里只是 CORS 暴露声明）。**所以不要把"读响应头"当成每次请求都能拿到的能力**——正常运行期只能按本地预算跑，靠 429 事后校正。这是原稿的一个设计错误，已修正。
 
 `burst` 给得很小（2）是刻意的：Tier 1 只有 10/min，一次突发失败会让后续调用排队更久，不如串行化。
 
@@ -394,15 +394,15 @@ if (hit === undefined) {
 
 **如果你们是 Organization / Enterprise 套餐，计划访问令牌明显更优**：1 年有效期 + 可刷新 + 24 小时重叠期 + 天然不支持写 scope（与本插件只读定位完全吻合），且不必担心"某人离职后 token 失效"。唯一代价是它不支持 `GET /v1/me`——所以 §4.4 第 2 条的自检探针改用 `GET /v1/files/:key/meta`（Tier 3，很轻，且两种令牌都支持）。
 
-**令牌过期时 API 返回什么**：官方在 file 端点页把 `403` 定义为 *"The developer / OAuth token is invalid or expired"*。**注意是 403 而不是 401** —— 实现时两个都要按"凭据失效"处理，别只判断 401。
+**令牌过期时 API 返回什么（已实测，修正原稿）**：Figma 对**无效/过期令牌返回 `401`**，响应体为 `{"status":401,"err":"Invalid token"}`。而 `403` 是**令牌有效但缺 scope**，响应体含 `"Invalid scope: [<该令牌实际持有的全部 scope>]"`。详见 §5.4 的实测对照表与判别规则。**原稿写的"Figma 用 403 而非 401"是错的，已修正。**
 
 **轮换的体验设计**（这是本条信息真正影响的部分）：
 
-1. **不做"自动刷新"**。只有计划令牌能刷新，且刷新动作在 Figma 的管理界面或 API 上，不是 agent 该碰的东西。也不要为了省事去存 OAuth 授权记录（本项目只读且用户只给 token）。
-2. **不在我们这边存"过期日期"**。存了就会漂移，还会给用户一种"系统知道什么时候过期"的错觉。**让 403 自己说话**：捕获到凭据失效时，错误结果直接给出可执行的补救步骤（`kind: 'token_expired'`）：
-   > Figma 令牌已失效或过期（403）。请到 Figma → Settings → Security → Personal access tokens 生成新令牌（只读 scope 即可），保存到 `~/.dsh/.credentials.yaml` 的 `refs.FIGMA_TOKEN`。凭据文件带 `watch`，**保存即生效，不需要重启**。
-3. **轮换无需重启，这件事由 DSH 已经保证**：`ctx.credentials.resolve()` 是**每次操作重新解析**的（官方文档明确要求不得跨操作缓存），加上凭据文件 `watch: true`，所以用户改完文件后，**下一个请求就用新令牌**——刚好覆盖"90 天到了、换一个"这个场景。
-4. **降级而不是崩**：令牌失效时，插件要给出确定性的可操作错误，且**其他插件不受影响**（§0.1 的 observational equivalence）。不要把令牌失效做成插件卸载或启动失败。
+1. **不做"自动刷新"**。PAT 不可刷新，只能删除重建；计划令牌可刷新，但刷新动作在 Figma 管理界面，不是 agent 该碰的东西。也不要为了省事去存 OAuth 授权记录（本项目只读且用户只给 token）。
+2. **不做"提前预警"**。Figma 不通过 API 暴露令牌的签发时间或剩余有效期（实测响应头里没有任何相关字段），所以"还有 7 天过期、提醒你续期"**做不到**，只能失效后反应式处理。
+3. **不在我们这边存"过期日期"**。存了就会漂移，还会给用户一种"系统知道什么时候过期"的错觉。**让 401 自己说话**：捕获到 `Invalid token` 后，按 **§5.4.1 的通道 A** 把补救步骤交给模型，由模型去要求用户重新申请。
+4. **轮换无需重启，这件事由 DSH 已经保证**：`ctx.credentials.resolve()` 是**每次操作重新解析**的（官方文档明确要求不得跨操作缓存），加上凭据文件 `watch: true`，所以用户改完文件后，**下一个请求就用新令牌**——刚好覆盖"90 天到了、换一个"这个场景。
+5. **降级而不是崩**：令牌失效时，插件要给出确定性的可操作错误，且**其他插件不受影响**（§0.1 的 observational equivalence）。不要把令牌失效做成插件卸载或启动失败。
 
 > **给用户的一句话建议**：如果你们有 Org/Enterprise 套餐，用**计划访问令牌**（1 年 + 可刷新 + 无写权限）；否则用**只读 PAT**，并接受每 90 天换一次——换的时候直接改 `~/.dsh/.credentials.yaml`，保存即生效。
 
@@ -538,24 +538,78 @@ Figma 插件 (用户手动在 Figma 里运行一次)
 ```ts
 type FigmaError =
   | { kind: 'unconfigured'; remedy: string }              // 凭据未配置
-  | { kind: 'token_expired'; remedy: string }             // 403：令牌无效或已过期（Figma 用 403，不是 401）
-  | { kind: 'forbidden_scope'; scope: string; remedy }    // 403：令牌有效但缺 scope（变量 API 常见）
+  | { kind: 'token_invalid'; remedy: string }             // 401 "Invalid token"：令牌过期/被撤销/写错
+  | { kind: 'forbidden_scope'; granted: string[]; missing: string[]; remedy: string }
   | { kind: 'not_found'; remedy: string }                 // 404：key 或 nodeId 错
-  | { kind: 'rate_limited'; retryAfterSec: number; upgradeUrl?: string; tier: string }
+  | { kind: 'rate_limited'; retryAfterSec: number; upgradeUrl?: string; tier?: string }
   | { kind: 'too_large'; bytes: number; spoolPath: string; suggestion: string }
   | { kind: 'bad_args'; field: string; reason: string }   // 参数校验失败
   | { kind: 'bridge_offline'; remedy: string }            // 插件桥不可用
   | { kind: 'upstream'; status: number; body: string }    // 其他
 ```
 
-**403 的两种含义必须区分开**，否则用户会被指向错误的补救动作：
+**⚠️ 这里原稿写错了，已按实测修正。** 我原先写"Figma 对过期令牌返回 403 而非 401"——**实测证明 401 才是令牌本身的问题**：
 
-- `token_expired` —— 令牌本身失效/过期（§4.4.1）。remedy 指向"去 Figma → Settings → Security 重新生成，写回 `~/.dsh/.credentials.yaml`，保存即生效"。
-- `forbidden_scope` —— 令牌有效但 scope 不够。remedy 指向"给这个令牌补上 `file_variables:read`"。
+| 实测输入 | 状态 | 响应体 | 含义 |
+|---|---|---|---|
+| 故意用无效 token 请求 `/v1/files/:key/meta` | **401** | `{"status":401,"err":"Invalid token"}` | **令牌无效/过期** |
+| 有效 token 请求 `/v1/me`（scope 不含所需） | **403** | `{"error":true,"status":403,"message":"Invalid scope: [...]"}` | **令牌有效，缺 scope** |
 
-区分方式：读响应体里的 Figma 错误信息；无法区分时**默认报 `token_expired`**（因为过期是高频原因，且它给出的补救步骤是无害的）。**不自动重试 403** —— 重试不会让权限变多。
+所以判别规则是：
+
+- **`401` + `err: "Invalid token"` → `token_invalid`**（过期 / 被撤销 / 抄错）。remedy 指向"去 Figma → Settings → Security 重新生成，只读 scope，写回 `~/.dsh/.credentials.yaml`，保存即生效"。
+- **`403` + `message` 含 `Invalid scope:` → `forbidden_scope`**。Figma **会把该令牌当前持有的全部 scope 列在错误体里**，所以可以直接解析出 `granted[]`，并据此告诉用户"缺 `file_variables:read`"，甚至提示"你这个令牌只有这几个 scope"。
+- 官方文档把 403 描述为 *"token is invalid or expired"*，但**实测中令牌问题走 401**；为稳妥，**两种状态码都按认证失败处理**，再按响应体文案分流。
+
+**两种都不自动重试**——重试不会让权限变多、也不会让令牌复活。
 
 每条 `remedy` 都要是**可执行的下一步**（"给这个 PAT 加上 `file_variables:read` scope"），而不是复述错误。
+
+### 5.4.1 令牌失效时如何"提示用户"（三种通道，按推荐度）
+
+你问的"插件能不能提示用户重新申请令牌"——**能，而且检测和提示都可靠；但没有任何办法替用户自动完成申请**。
+
+先划清能力边界，这决定了体验上限：
+
+- ✅ **能检测**：`401` 明确、无歧义（上表实测）。
+- ✅ **能提示**：三条通道见下。
+- ❌ **不能自动续期**：PAT **不可刷新**（官方原文：无刷新机制，只能删除重建）；且 Figma 生成 token 时**明文只显示一次**，不存在任何 API 能让插件把新 token 取回来。**必须由人粘贴回来。**
+- ❌ **不能提前预警**：Figma 不通过 API 暴露令牌的签发时间或剩余有效期（我实测过响应头，没有任何相关字段）。所以**做不了"还有 7 天过期，提醒你续期"**，只能失效后反应式处理。
+
+**通道 A（推荐）：把错误变成"活跃的补救指令"，而不是失败的调用。**
+
+`dsh-tools` 的语义是：抛出的调用会变成 `Error: <message>`，且**不会结束回合**（README 原文 "return finalized results without ending a turn on ordinary tool failures"）。所以：
+
+- **不要 `throw`**。抛错会让模型只看到一句 `Error: ...`，它倾向于"我再试一次"或直接放弃；
+- **返回一个成功的、带结构化字段的结果**，让模型读到明确的下一步：
+
+```
+令牌已失效（Figma 返回 401 Invalid token）。
+原因：个人访问令牌最长 90 天且不可刷新，现在已过期或被撤销。
+请用户执行：
+  1. 打开 https://www.figma.com/settings → Security → Personal access tokens → Generate new token
+  2. 勾选只读 scope：file_content:read, file_metadata:read, file_comments:read, file_dev_resources:read
+  3. 把新令牌写入 ~/.dsh/.credentials.yaml 的 refs.FIGMA_TOKEN（保存即生效，无需重启）
+  4. 写完后告诉我，我重试刚才的操作
+```
+
+关键在于最后一句：**模型被明确授权"重新申请 + 重试"这件事**，于是它会主动去找用户、说明原因、并在用户放好新令牌后自己重试——这才是"要求用户重新申请一次令牌"的完整闭环。
+
+**通道 B（可选，P3）：用 `ctx.userQuestions.ask()` 直接弹 UI。**
+
+DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走 scoped answerer 瀑布并等待人类回答（`AskUserQuestionItem` 支持 `options`，所以可以把 Figma 设置界面的链接做成一个可点选项）。这比让模型转述体验更好。
+
+但用之前必须知道三个约束（都来自其文档）：
+
+1. **不可用时是硬失败，不是降级**：`ask_user_question`（同一个 seam）"Without one, the tool call fails with an error instead of degrading"——没有交互式 answerer 时它是报错，不是返回 undefined。所以必须 `ctx.get('userQuestions')` + 存在性检查，并包 try/catch；
+2. **只有"确切的活跃运行时根"才能问人**：文档明确 `owned child has no human answerer and would block forever`。即**子 agent / 后台任务里问不到人，会永久阻塞**——这正是必须 try/catch 且不能无条件开启的原因；
+3. 拿到的只是一个选择结果，**新令牌仍然要人去 Figma 生成**，这一步省不掉。
+
+**决策：P0 只做通道 A，通道 B 列为 P3 可选项。** 理由：A 零风险、覆盖全部场景（含子 agent 与后台任务）、且闭环完整；B 的收益是"弹窗更漂亮"，代价是阻塞与失败模式，不值得在 P0 引入。
+
+**通道 C（不推荐）：直接返回 `isError: true`。** 可行，但模型倾向于把工具错误当成"暂时性故障"而重试，对"令牌过期"这种不可自愈的状态是错误引导。**不要用。**
+
+**一个附带的设计要求**：`token_invalid` 要**在进程内记忆**（记住"这个凭据值已失效"直到凭据发生变化），使得同一次会话里的后续调用**立刻失败并复用同一份指引**，而不是每次都去撞一次 401。判据用凭据值的哈希，不用时间——这样用户放好新令牌后自动恢复。
 
 ### 5.5 安全
 
@@ -570,7 +624,8 @@ type FigmaError =
 
 - 每次调用 `ctx.emit('figma/call', {...})`（只发叶子字段，**不要序列化 live 对象**）；
 - 结果 meta 里回传 `bytes / cached / ms / ratelimitRemaining`，模型自己会据此调整策略（"刚才那次很贵，我换个方式"）；
-- 自检：解析凭据 → 用 `GET /v1/files/:key/meta`（Tier 3）探一次 → 校验返回。失败只在日志告警，**不阻断加载**（避免一个坏 token 让整个 harness 起不来）。**不用 `GET /v1/me`** —— 计划访问令牌不支持该端点（§4.4.1）。
+- 自检：解析凭据 → 用 `GET /v1/files/:key/meta`（Tier 3）探一次 → 校验返回。失败只在日志告警，**不阻断加载**（避免一个坏 token 让整个 harness 起不来）。
+  **已实测**：`GET /v1/me` 对本 token 返回 403（scope 不含 `current_user:read`），所以自检**必须**用 `meta` 而不是 `/v1/me`；且 `meta` 需要 `file_metadata:read`，该 token 已具备（列在 403 响应体的 granted 列表里）。
 
 ---
 
@@ -586,8 +641,12 @@ type FigmaError =
 1. 给一个真实 Figma 设计链接，模型能说出：文件里有哪些页面、顶层 Frame 的结构、主色调 hex、主要字体与字号；
 2. 追问"某个 Frame 里的按钮长什么样"，模型用 `file_nodes` 定点取，**不重取整个文件**；
 3. 导出该 Frame 的 PNG，模型当轮直接看到图；
-4. 断网/改坏 token，错误信息能让用户知道具体该做什么；
-5. 故意连续调用 12 次 Tier 1 能力，观察排队与 429 退避是否按预期工作。
+4. 故意连续调用 12 次 Tier 1 能力，观察排队与 429 退避是否按预期工作；
+5. **令牌失效闭环（§5.4.1 通道 A）**：把 `refs.FIGMA_TOKEN` 临时改成一个无效值，然后发起一次调用，**必须观察到**：
+   - 工具**没有**抛错，而是返回结构化的 `token_invalid` + 可执行补救步骤；
+   - 模型据此**主动向用户说明原因并要求重新申请令牌**（而不是无意义重试）；
+   - 用户写回新令牌后（**不重启**），模型重试同一个操作并成功；
+   - 期间 `Tool.listTools` 不变、其他插件不受影响。
 
 ### P1 — 设计系统语义
 
@@ -650,7 +709,7 @@ type FigmaError =
 | 企业版 API（变量）权限 | 421/403 难懂 | 单独 spec + 明确 remedy 文案，不与其他错误混同 |
 | 插件桥依赖用户手动运行插件 | 体验断点 | 桥用 coeffect 声明，离线时工具根本不出现在表里（见 §4.3）；文档给出一次性接入步骤 |
 | 图片 URL 短期有效 | 复看时 403 | 官方说明图片资源 **30 天后过期**（image fills 的 URL ≤14 天）；故立刻下载落盘 + 内容寻址命名，工具结果只给本地路径 |
-| **令牌过期**（PAT 最长 90 天，且不可刷新） | 某天起全部调用 403 | 不存过期日期；捕获 403 报 `token_expired` 并给出重录步骤；`resolve` per-call + 凭据文件 watch 保证**改完即生效免重启**（§4.4.1） |
+| **令牌过期**（PAT 最长 90 天，且不可刷新） | 某天起全部调用 401 | 不存过期日期、不做提前预警（Figma 不暴露有效期）；捕获 401 报 `token_invalid` 并把补救步骤交给模型去要求用户重录；`resolve` per-call + 凭据文件 watch 保证**改完即生效免重启**（§4.4.1、§5.4.1） |
 | 重定向泄漏 token | 凭据泄漏 | 禁用自动重定向 |
 | Figma 改版限流策略 | 硬编码失效 | 限额做成 config（`tier` 档位），并读响应头自适应 |
 | **MCP 协议版本分裂**（见 §6 P2） | P2 适配器可能白写 | 只实现部署现有 SDK 支持的 `2025-11-25`；stateless 版留到 SDK 升级后，且只改动适配器一个文件 |
@@ -721,6 +780,21 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 - **§1.2 工具开销数字的来源**：用 `Tool.listTools` Inspect 拿到本 session 全部 34 个工具的真实定义（名称/description/parameters 全文），按其 JSON 结构逐项累加字符数得 ~30.9k 字符；token 数按 3.6 字符/token 换算为 ~8.6k。**这是一个工程近似值，不是 tokenizer 精确计数**——本机没有可离线调用的 DeepSeek tokenizer，所以按比例外推（"130 个工具 ≈ +32.8k tokens"）时请当作量级判断而非精确账单。
 - `~/.dsh/profiles/web/package.json` + `cordis.patch.yml`：本地插件接线方式（`link:` 依赖 + `insert` 行）；`plugins/pale-green-tint` 是一个已在本机正常工作的手写插件先例
 - `dsh plugin --profile web --help` 实际转发给 pnpm，即 `dsh plugin --profile web add <pkg>` = 在 profile 目录里 `pnpm add`
+
+**Figma 认证的实测结果（用你自己的 PAT 打真实 API，未经中间层）**：
+
+| 请求 | 状态 | 响应体 | 结论 |
+|---|---|---|---|
+| 有效 token → `GET /v1/me` | 403 | `{"error":true,"status":403,"message":"Invalid scope: [\"file_content:read\", \"file_comments:read\", \"library_content:read\", \"library_assets:read\", \"file_dev_resources:read\", \"file_metadata:read\"]. This endpoint requires the file_read or files:read or current_user:read scope."}` | 令牌有效；`/v1/me` 需要别的 scope。**这条同时把该令牌实际持有的 6 个 scope 全列了出来** |
+| 有效 token → `GET /v1/files/<假 key>/meta` | 404 | `{"status":404,"err":"Not found"}` | 认证通过（若令牌坏会 401），文件不存在 |
+| **故意无效 token** → 同一端点 | **401** | `{"status":401,"err":"Invalid token"}` | **令牌问题走 401** |
+| 有效 token → `GET /v1/files/<假 key>/variables/local` | 404 | `{"status":404,"error":true,"message":"Not found"}` | 路径存在，只是文件不存在（企业版能力是否可用仍待真文件验证） |
+
+其它实测所得：
+
+- 成功响应**不返回** `Retry-After` / `X-Figma-Plan-Tier` / `X-Figma-Rate-Limit-Type` / `X-Figma-Upgrade-Link`；它们出现在 `access-control-expose-headers` 里只是 CORS 暴露声明，**只在 429 上真正出现**。
+- `access-control-allow-headers: Content-Type, X-Figma-Token, Authorization` —— **两种认证头都被接受**，`vary: X-Figma-Token, Authorization` 进一步确认。
+- 响应头里**没有任何**关于令牌签发时间 / 剩余有效期的字段 → §4.4.1 的"无法提前预警"结论由此而来。
 
 **官方文档**：
 - [Figma REST API 认证](https://developers.figma.com/docs/rest-api/authentication/)：OAuth / plan token / PAT 三种；scope 概念（如 `file_content:read`）
