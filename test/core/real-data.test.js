@@ -29,6 +29,7 @@ import { createTokenSource } from '../../src/core/auth.js'
 import { createProvider } from '../../src/core/provider.js'
 import { createMemorySpool } from '../../src/core/spool-sink.js'
 import { estimateBytes } from '../../src/core/tokens.js'
+import { read as structuredRead } from '../fixtures/structured-read.js'
 
 const FILE_KEY = process.env.FIGMA_TEST_FILE_KEY
 const NODE_ID = process.env.FIGMA_TEST_NODE_ID
@@ -44,14 +45,51 @@ const skip = live
   : 'set FIGMA_TEST_FILE_KEY, FIGMA_TEST_NODE_ID, and FIGMA_TOKEN to run the live Figma checks'
 
 /**
- * Build a provider wired to the live API.
+ * Every paint color in a projected value, fills and strokes together.
+ *
+ * The projection keeps them apart on purpose (a stroke is not a fill), so a
+ * test that just wants "the colors" has to say so.
+ *
+ * @param {Record<string, any>} value - A projected node-tree value.
+ * @returns {string[]} Hex colors.
+ */
+function paletteHexes(value) {
+  return [...(value.palette?.fills ?? []), ...(value.palette?.strokes ?? [])].map((entry) => entry.hex)
+}
+
+/**
+ * Live providers, one per distinct configuration.
+ *
+ * **Shared across checks on purpose.** A provider owns the rate-limit bucket,
+ * the TTL cache, and the single-flight map, and every one of those is
+ * per-instance. Building a fresh provider per check reset the bucket at each
+ * test boundary, so the client-side limiter — `tier1: {perMinute: 5, burst: 1}`,
+ * sized for the weakest plausible seat — never saw the suite's real request
+ * count and could not throttle it. The first live run of the P1 suite proved
+ * what that costs: it drained a Tier 1 allowance measured in tens per month and
+ * the second run failed on 429s.
+ *
+ * Memoised rather than a single instance because one check asks for a larger
+ * token budget. Keying on the configuration keeps that variation working while
+ * still giving all same-configuration checks one bucket and one cache.
+ *
+ * @type {Map<string, {provider: ReturnType<typeof createProvider>, spool: ReturnType<typeof createMemorySpool>}>}
+ */
+const liveProviders = new Map()
+
+/**
+ * Build — or reuse — a provider wired to the live API.
  *
  * @param {object} [config] - Provider configuration overrides.
  * @returns {{provider: ReturnType<typeof createProvider>, spool: ReturnType<typeof createMemorySpool>}} Live provider.
  */
 function liveProvider(config = {}) {
+  const key = JSON.stringify(config)
+  const existing = liveProviders.get(key)
+  if (existing !== undefined) return existing
+
   const spool = createMemorySpool()
-  return {
+  const built = {
     spool,
     provider: createProvider({
       tokenSource: createTokenSource({ ref: 'FIGMA_TOKEN', resolve: async () => TOKEN }),
@@ -59,19 +97,21 @@ function liveProvider(config = {}) {
       config: { maxResultBytes: 4_194_304, budgetTokens: 1_000_000, ...config },
     }),
   }
+  liveProviders.set(key, built)
+  return built
 }
 
 /**
- * Read one capability and return the structured content.
+ * Read one capability and return its structured content, refusing to continue
+ * on a failure the way the provider actually reports one.
  *
- * @param {ReturnType<typeof createProvider>} provider - Provider.
- * @param {object} input - Call input.
- * @returns {Promise<Record<string, any>>} Structured content.
+ * The body lives in `test/fixtures/structured-read.js` so that both live suites
+ * share it — and so it can carry a regression test without importing a
+ * `*.test.js`, which would execute that suite a second time against real quota.
+ *
+ * @type {typeof import('../fixtures/structured-read.js').read}
  */
-async function read(provider, input) {
-  const result = await provider.call(input)
-  return /** @type {Record<string, any>} */ (result.structuredContent)
-}
+const read = structuredRead
 
 test('metadata reports real facts, not an empty object', { skip }, async () => {
   const { provider } = liveProvider()
@@ -107,7 +147,7 @@ test('projection baseline: a single frame at depth 4 projects to roughly a quart
   const value = /** @type {Record<string, any>} */ (result.value)
   assert.match(value.source, /^(file|nodes)$/)
   assert.ok(Array.isArray(value.roots) && value.roots.length === 1)
-  assert.ok(value.palette.length > 0, 'a real frame must report a palette')
+  assert.ok(value.palette.fills.length > 0, 'a real frame must report a palette')
   assert.ok(value.fonts.length > 0, 'a real frame must report a type scale')
 
   // Re-measuring the raw payload would spend a second request, so the baseline
@@ -127,7 +167,7 @@ test('projection baseline: palette and type scale are the ones measured for this
   const { provider } = liveProvider({ budgetTokens: 1_000_000 })
   const result = await read(provider, { op: 'file_nodes', args: { fileKey: FILE_KEY, ids: [NODE_ID], depth: 4 } })
   const value = /** @type {Record<string, any>} */ (result.value)
-  const hexes = value.palette.map((entry) => entry.hex)
+  const hexes = paletteHexes(value)
 
   // Every hex must be a real, well-formed color: the point of the check is that
   // projection produced usable colors, not that one file has one palette.
@@ -145,10 +185,10 @@ test('theme pair: two versions of one dashboard keep separate palettes and share
 
   const a = /** @type {Record<string, any>} */ (first.value)
   const b = /** @type {Record<string, any>} */ (second.value)
-  assert.ok(a.palette.length > 0 && b.palette.length > 0)
+  assert.ok(a.palette.fills.length > 0 && b.palette.fills.length > 0)
 
-  const setA = new Set(a.palette.map((entry) => entry.hex))
-  const setB = new Set(b.palette.map((entry) => entry.hex))
+  const setA = new Set(paletteHexes(a))
+  const setB = new Set(paletteHexes(b))
   const identical = setA.size === setB.size && [...setA].every((hex) => setB.has(hex))
   assert.equal(identical, false, 'the two halves of a theme pair must not project to the same palette')
 
