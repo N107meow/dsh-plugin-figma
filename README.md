@@ -7,6 +7,24 @@
 > 已确定的决策：包名 **`dsh-plugin-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**。
 >
 > P0 范围已冻结，见 `docs/PLAN.md` §9.1.3。
+>
+> **要动手实现？直接看 [`docs/P0-IMPLEMENTATION.md`](docs/P0-IMPLEMENTATION.md)** —— 那是施工图（做什么、按什么顺序、怎么算做完），不需要通读 `PLAN.md`。
+
+## 开发环境准备（唯一必需步骤）
+
+插件通过 `link:` 装进 DSH profile，所以 Node 会按**本仓库**（符号链接的真实路径）解析 import，**不会**去 profile 的 `node_modules` 找。因此宿主包必须在本仓库里也装一份：
+
+```bash
+# ⚠️ 必须钉精确版本 —— npm 上 @deepseek-ai/dsh-tools 的 latest 标签指向陈旧的
+#    0.0.1-rc.1，而部署在用的是 0.1.5-rc.2
+pnpm add -D @deepseek-ai/dsh-tools@0.1.5-rc.2 \
+           @deepseek-ai/schemastery@3.18.2 \
+           @deepseek-ai/cordis@4.0.2
+
+npm run check:deps     # 三个必须全 ✅
+```
+
+一条命令跑全部检查：`npm run verify`（deps + 分层门禁 + 测试）。
 
 ## 读什么
 

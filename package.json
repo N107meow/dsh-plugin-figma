@@ -27,11 +27,19 @@
   "engines": {
     "node": ">=20"
   },
+  "//peerDependencies": "The host supplies these, but this repo is consumed via `link:`, so Node resolves imports from THIS directory (the symlink's real path). They must therefore be installed here too — see docs/P0-IMPLEMENTATION.md section 1.0.",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  },
   "scripts": {
+    "check:deps": "node scripts/check-deps.mjs",
+    "check:layering": "node scripts/check-layering.mjs",
     "test": "node --test test/",
     "test:core": "node --test test/core/",
-    "prepublishOnly": "npm test",
-    "check:layering": "node scripts/check-layering.mjs"
+    "verify": "npm run check:deps && npm run check:layering && npm test",
+    "prepublishOnly": "npm run verify"
   },
   "repository": {
     "type": "git",
