@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+lib/
+dist/
+*.tsbuildinfo
+
+# secrets — never commit a Figma token
+.env
+.env.*
+!.env.example
+.credentials.yaml
+*.token
+.secrets/
+
+# test artifacts and recorded Figma fixtures that may contain private file data
+fixtures/recorded/
+coverage/
+*.log
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
