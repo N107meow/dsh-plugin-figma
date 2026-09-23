@@ -106,6 +106,82 @@ Figma 插件 manifest 的 `networkAccess.allowedDomains` 是**域名白名单**�
 
 同时，插件的 `main` 代码运行在 Figma 的受限沙箱中（无 socket / 无任意 fetch），只有 `ui` 声明的 iframe 具备网络能力，两者通过 `postMessage` 通信。这条决定了「Plugin API 桥」的拓扑（见 §5.3）。
 
+### 1.3 已实测的 Figma API 行为（用你的 PAT 打真实文件 `Design File A`）
+
+P0 的第一件事做完了。下面是实测数据，其中**三条直接修正了原设计**：
+
+**(1) `depth` 是唯一有效的体积防线，而且不做默认——危害极大。**
+
+同一个节点 `ids=13:14`（一个 FRAME），只改 `depth`：
+
+| 请求 | 响应体 |
+|---|---|
+| `/nodes?ids=13:14`（**不传 depth**） | **48,659 bytes** |
+| `/nodes?ids=13:14&depth=1` | **2,491 bytes**（−95%） |
+| `/nodes?ids=13:14&depth=2` | 4,529 bytes |
+| `/nodes?ids=13:14&depth=3` | 6,928 bytes |
+| `/nodes?ids=1:2`（**根 CANVAS，不传 depth**） | **1,193,266 bytes** ≈ 整个文件（`/v1/files/:key` 全量是 1,193,337 bytes） |
+
+**结论**：`ids` 只决定"从哪开始"，**不限制取多少**；`depth` 才决定取多少。不传 `depth` 时返回**完整后代树**——所以 `?ids=<根节点>` 等于把整个文件拉回来。这不是隐患，是**必然踩到的坑**，因为模型对"取一个节点"的直觉预期是"取这一层"。
+
+> **硬性要求**：`params` 里 `depth` 必须有插件侧默认值（2），且 `ids` 与 `depth` **成对使用**。`figma_call` 在 `ids` 存在而 `depth` 缺失时**自动补默认值**，而不是把球踢给模型。
+
+**(2) `ETag` 存在，但条件请求不可用——缓存只能靠 TTL。**
+
+- `GET /v1/files/:key/meta` **返回** `etag: W/"3b0-..."`；
+- 带 `If-None-Match: <该 etag>` 重新请求，返回 **`200` + 完整 body，不是 304**；
+- 且响应头明确 `cache-control: no-cache, no-store`；
+- `GET /v1/files/:key` 与 `/nodes` **没有** `etag`。
+
+> **结论**：原稿"用 `If-None-Match` 换 304 省额度"的方案**作废**。缓存只能用**短 TTL**（默认 60s）。所幸"304 是否消耗额度"这个悬而未决的问题**不再需要回答**——既然拿不到 304，它对方案没有影响。缓存失效判据改用 `/meta` 的 `version` / `last_touched_at`（便宜、Tier 3）做显式失效。
+
+**(3) `/meta` 是最便宜的"指纹"端点，且自检很轻。**
+
+`GET /v1/files/:key/meta` 返回 200、944 bytes、2.2s，含 `version`、`lastModified`、`last_touched_at`、`creator`、`role: owner`。自检与"文件是否变了"都靠它。
+
+**(4) 图片导出：小 JSON + 需下载的预签名 URL。**
+
+`GET /v1/images/:key?ids=1:2&format=png&scale=2` → `200`，**126 bytes**：
+`{"err":null,"images":{"1:2":"https://figma-alpha-api.s3.us-west-2.amazonaws.com/images/..."}}`。
+拿到的只是 URL，必须再下载一次。§4.5(d) 的"立刻落盘 + 内容寻址"设计成立。
+
+**(5) 限流实测**：在约 3 分钟窗口内对 Tier 1/Tier 3 端点共发出 ~12 次请求，**未出现 429**。这**不能**证明 Full 席位在 Pro 套餐下的上限高于 10/min——样本太小。保守预算仍然保留，等真实 429 出现后再用响应头校正。
+
+**(6) 投影器已在真实数据上验证通过（这是最有价值的一条）。**
+
+用你给的 `Design File A` 文件（1,219 个节点）里 `首页示例 / Box` 这个 FRAME（`11:12`，`depth=4`）跑了一遍白名单投影：
+
+| | 大小 | 约合 tokens |
+|---|---|---|
+| Figma 原始节点 JSON | 20,859 chars | ~5,794 |
+| 投影后 | 5,879 chars | ~1,633 |
+| **压缩率** | **−72%** | |
+
+且关键语义**完整保留**：
+
+- **配色**（`color` 是 0–1 浮点 RGBA，投影时归一为 hex）：`#111827`（近黑正文）、`#9CA3AF`（次要灰）、`#C4CCC8`（浅边框灰）、`#F5F5F7`（卡片底）、`#FFFFFF`
+- **字体层级**：`Inter 400 10.5px` / `Inter 400 12.5px` / `Inter 600 13.0px` / `Inter 700 18.0px` —— 4 级，干净
+- **文案**（含中文与换行）：`欢迎使用 Design File A`、`开始之前，建议先完成基础配置…`
+
+**所以 §4.5(a) 的投影策略不是纸上设计，是已验证可行的**；`depth=4` 这种深度的单个画板产出约 1,600 tokens，8 个画板全读约 1.3 万 tokens——在预算内。
+
+**(7) 实测中发现并修正了一个会静默取错颜色的 bug（重要）。**
+
+Figma 的 paint 对象长这样：
+
+```json
+{ "blendMode": "NORMAL", "type": "SOLID",
+  "color": { "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0 } }
+```
+
+`color.a` 是**颜色的 alpha 通道**，**不是**图层的透明度；图层透明度是**另一个字段** `fill.opacity`。我的投影草稿把两者混用了（用 `color.a` 当 opacity），这在实测样本上**恰好没暴露**——因为该文件的 8 个 fill **全部** `a = 1.0`（实测 `fills with their own opacity: 0/8`）。
+
+但只要有一个半透明色（如 `{r:0.5,g:0.5,b:0.5,a:0.3}`），草稿就会算出 `#4D4D4D` 而不是正确的 `#808080`，**而且不会报错——只是颜色静默错误**。这类 bug 在"模型读设计"的场景里最难发现，因为它看起来完全合理。
+
+> **修正后的规则**：hex 只取 `r/g/b`（忽略 `a`）；透明度只读 `fill.opacity`，且仅在 `≠1` 时输出；`color.a` 单独作为 alpha 透传。**已写入 P0 的单元测试清单，并用半透明样本做回归。**
+
+**(8) 其它结构事实**：整个 `/v1/files` payload 里 `document` 占 **100.0%**（1,305,357 / 1,305,964 bytes），顶层 `components` / `componentSets` / `styles` 都是空 map —— **所以体积全部来自文档树，`ids` + `depth` 就是正确的两个杠杆，没有第三个需要处理的膨胀源**。该文件有 8 个顶层画板（`保存流程示例`、`导出流程`/`导出流程2`、`整理流程`/`整理流程2`、`配置页`、`首页示例`、`识别流程`），每个画板内嵌一个 `Box` 深树。
+
 ---
 
 ## 2. MCP 五层 → DSH 运行时：映射与归属
@@ -201,7 +277,7 @@ Figma-MCP-dsh/
     │       ├── http.ts           # fetch 薄封装：超时、AbortSignal、错误归一
     │       ├── retry.ts          # 429 感知退避（读 Retry-After）
     │       ├── scheduler.ts      # ★ 令牌桶 + 单飞 + 队列
-    │       ├── cache.ts          # LRU + TTL + ETag/SWR
+    │       ├── cache.ts          # LRU + TTL（ETag/304 已实测不可用）
     │       ├── projection.ts     # ★ 节点树 → 模型友好结构
     │       ├── budget.ts         # ★ 结果大小预算 + 溢出落盘
     │       ├── url.ts            # Figma URL → fileKey/nodeId 解析
@@ -423,12 +499,16 @@ Figma 节点对象有近百个字段，其中大部分对模型毫无价值。�
 ```
 
 - **文本节点特殊处理**：`characters` 保留，但超过阈值截断，并记录被截断的长度——设计师的文案经常很长，全量塞进去性价比极低。
-- **颜色归一**：Figma 用 0–1 浮点 RGBA。投影时转成 `#RRGGBB` + `opacity`，因为模型在 hex 上的推理和生成质量明显更好，也更省 token。
-- **几何信息按需**：`absoluteBoundingBox` 是回答"这两个元素对不对齐"的关键，默认给；`geometry=paths` 只在明确要矢量路径时给。
-- **深度控制默认开**：`depth` 默认 2。这是防"一次调用烧掉整个上下文"的第一道闸。
+- **颜色归一（⚠️ 实测修正过，务必按此实现）**：Figma 的 `color` 是 0–1 浮点 RGBA，但
+  **`color.a` 是 alpha 通道，不是图层透明度**；图层透明度在**另一个字段** `fill.opacity`。
+  所以：hex **只取 `r/g/b`**（忽略 `a`）；透明度**只读 `fill.opacity`** 且仅在 `≠1` 时输出。
+  混用两者会静默取错颜色（§1.3 第 7 条有完整的踩坑记录）。
+  文本样式只保留 `KEEP = {fontFamily, fontWeight, fontSize, textAlignHorizontal, lineHeightPx, letterSpacing}`，
+  丢掉 `fontPostScriptName` / `textAutoResize` / `lineHeightPercent*` / `lineHeightUnit` 这类实现细节。
+- **几何信息按需**：`absoluteBoundingBox` 是回答"这两个元素对不对齐"的关键，默认给（压缩成 `box:{x,y,w,h}` 并取整）；`geometry=paths` 只在明确要矢量路径时给。
+- **深度控制默认开**：`depth` 默认 2，**且 `ids` 存在时会自动补上这个默认值**（§1.3 第 1 条：不传 `depth` 会返回完整后代树，`?ids=<根>` 等于拉回整个文件）。这是防"一次调用烧掉整个上下文"的第一道闸。
 
 #### (b) 预算与溢出（budget + spool）
-
 ```ts
 if (bytes(result) > maxResultBytes) {
   const path = await spool(result)                 // 写 .figma/<hash>.json
@@ -447,7 +527,7 @@ if (bytes(result) > maxResultBytes) {
 
 1. **请求合并（单飞）**：同一个 `(fileKey, nodeIds, depth)` 在飞行中只发一次 HTTP，多个并发调用共享结果。这对限流是直接收益。
 2. **LRU + TTL**：默认 60s。同一轮对话里模型反复查同一节点是常态，命中率会很高。
-3. **ETag / `If-None-Match`**（若 Figma 响应带 ETag，实测确认）：`304` 不消耗额度吗——**这一点必须实测验证**，不能假设。
+3. **`ETag` / `If-None-Match`——已实测否决，不要实现**：`/meta` 虽返回 etag，但条件请求返回 `200` 全量而非 `304`，且 `cache-control: no-cache, no-store`；`/files` 与 `/nodes` 根本没有 etag。**缓存只能靠 TTL**（默认 60s），失效判据用 `/meta` 的 `version`。
 
 缓存 key 必须包含**影响响应内容的全部参数**（含 `depth`、`geometry`、`version`）。漏参就是给模型喂错数据，比不缓存更糟。
 
@@ -638,11 +718,14 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 - 接线到 `~/.dsh/profiles/web/`，热重载生效
 
 **验收（端到端，不靠单元测试自我感动）**：
-1. 给一个真实 Figma 设计链接，模型能说出：文件里有哪些页面、顶层 Frame 的结构、主色调 hex、主要字体与字号；
-2. 追问"某个 Frame 里的按钮长什么样"，模型用 `file_nodes` 定点取，**不重取整个文件**；
-3. 导出该 Frame 的 PNG，模型当轮直接看到图；
-4. 故意连续调用 12 次 Tier 1 能力，观察排队与 429 退避是否按预期工作；
-5. **令牌失效闭环（§5.4.1 通道 A）**：把 `refs.FIGMA_TOKEN` 临时改成一个无效值，然后发起一次调用，**必须观察到**：
+1. **【基准已建立】** 对 `Design File A`（fileKey `Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`，节点 `11:12` = `首页示例/Box`，`depth=4`）跑通：投影后 ≤ 6,000 chars（实测 5,879），且能正确报出配色 `#111827 / #9CA3AF / #C4CCC8 / #F5F5F7 / #FFFFFF` 与字体层级 `Inter 400 10.5/12.5px`、`600 13px`、`700 18px`；
+2. **投影回归测试（必测）**：构造一个**半透明** fill（如 `{r:0.5,g:0.5,b:0.5,a:0.3}`），断言 hex 为 `#808080` 且 `opacity` 来自 `fill.opacity`——**防止 §1.3 第 7 条那个静默取错颜色的 bug 回归**；
+3. **`depth` 守卫测试**：传 `ids` 而不传 `depth` 时，断言插件自动补 `depth=2`，且响应体 < 10 KB（不得出现 48 KB / 1.19 MB 那种量级）；
+4. 给一个真实 Figma 设计链接，模型能说出：文件里有哪些页面、顶层 Frame 的结构、主色调 hex、主要字体与字号；
+5. 追问"某个 Frame 里的按钮长什么样"，模型用 `file_nodes` 定点取，**不重取整个文件**；
+6. 导出该 Frame 的 PNG，模型当轮直接看到图；
+7. 故意连续调用 12 次 Tier 1 能力，观察排队与 429 退避是否按预期工作；
+8. **令牌失效闭环（§5.4.1 通道 A）**：把 `refs.FIGMA_TOKEN` 临时改成一个无效值，然后发起一次调用，**必须观察到**：
    - 工具**没有**抛错，而是返回结构化的 `token_invalid` + 可执行补救步骤；
    - 模型据此**主动向用户说明原因并要求重新申请令牌**（而不是无意义重试）；
    - 用户写回新令牌后（**不重启**），模型重试同一个操作并成功；
@@ -703,7 +786,9 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 |---|---|---|
 | Tier 1 额度只有 10–20/min | 连续操作直接不可用 | 令牌桶 + 单飞 + 缓存；默认 `depth` 限制；大任务后台化 |
 | View/Collab 席位 20 次/月 | 几乎不可用 | 启动自检 `X-Figma-Rate-Limit-Type`，UI/错误明确提示升级 |
-| 全量文件 JSON 撑爆上下文 | 会话报废 | 默认禁全量；超限 spool + 摘要，永不失败 |
+| 全量文件 JSON 撑爆上下文 | 会话报废 | **已实测风险真实**：不传 `depth` 时 `?ids=13:14` 返 48,659 B、`?ids=1:2`（根）返 1,193,266 B ≈ 整个文件。对策：`ids` 强制成对补 `depth` 默认值 + 超限 spool + 摘要，永不失败 |
+| **静默取错颜色**（`color.a` 被当成透明度） | 模型读到错误配色，且不报错 | §1.3 第 7 条：hex 只取 rgb、opacity 只读 `fill.opacity`；半透明样本进回归测试 |
+| 长会话里文档树反复被拉取 | 额度耗尽 | 默认 `depth` 限制 + LRU/TTL 60s + 同参单飞；**注意 `ETag`/304 不可用（已实测），缓存只能靠 TTL** |
 | 模型幻觉出不存在的 op | 无意义失败 | registry 白名单校验，错误里回带可用 op 列表 |
 | 节点 id 的 `-`/`:` 混淆 | 高频低级失败 | 由 `target` URL 解析统一承担，并在错误里给出正确写法 |
 | 企业版 API（变量）权限 | 421/403 难懂 | 单独 spec + 明确 remedy 文案，不与其他错误混同 |
@@ -814,7 +899,8 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 - [Claude 官方对 MCP 2026-07-28 的说明](https://claude.com/blog/bringing-mcp-2026-07-28-to-claude)；[Google 关于 MCP stateless 的工程文章](https://developers.googleblog.com/en/scaling-ai-agent-infrastructure-with-the-mcp-stateless-updates/)
 
 **本方案中我没有逐条核实的部分**（诚实标注，避免误导）：
-- Figma 各端点具体返回字段与是否支持 `ETag`/`304`。P0 第一件事就是实测这两项（见文末），它们直接决定缓存策略的收益上限。
+- Figma 各端点在**其它文件类型**（FigJam / Slides / Dev Mode）上的返回字段差异；本次只在 `Design File A`（`editorType: figma`）上验证过。
+- 企业版能力（`variables/local`）在**有权限的套餐**下的真实返回结构——本次该端点只返回了 `404`（文件不存在）。
 - Figma 官方 MCP server（远程 `mcp.figma.com/mcp` 与本地 Dev Mode 端口）的当前工具清单与端口细节；§3 中对它的定位（需要 OAuth 登录 / 需要桌面端打开文件）足以支撑选型结论，但不作为实现依据。
 - MCP `2026-07-28` 的字段级细节（`server/discover` 的精确 schema、MRTR 的 `inputRequests` 结构等）。P2 只实现 `2025-11-25`，届时若要做 stateless 适配器再逐条对照规范。
 - 论文中 service broker 等章节的具体机制（§0.1 末尾提到但未展开），我只依据摘要层面的结论，没有逐节校对 92 页正文。
@@ -841,4 +927,4 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 
 ---
 
-> 待实测确认的两项（P0 第一件事就做）：**① 304 是否消耗限流额度；② `GET /v1/files/:key` 与 `nodes` 端点是否返回 `ETag`。** 这两条结论会直接影响缓存策略的收益上限。
+> **P0 的两项前置实测已完成**（见 §1.3）：**① `ETag` 返回但条件请求不支持（拿不到 304，故该问题作废）；② `/files` 与 `/nodes` 无 `etag`。** 缓存策略因此确定为**纯 TTL**。
