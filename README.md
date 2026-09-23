@@ -49,6 +49,20 @@ packages/
 
 **"只读"是一条硬约束，不是默认值。** 意味着：能力表里没有写端点、运行期有 `GET` 断言、CI 有门禁、文档只引导只读 scope，且代码里不预埋任何 dry-run / 审批钩子。
 
+### 令牌会过期 —— 但不用每 90 天手动重录
+
+Figma 的两种令牌差别很大，选对了就省事：
+
+| | 个人访问令牌（PAT） | 计划访问令牌（Plan token） |
+|---|---|---|
+| 最长有效期 | **90 天**，且**不可刷新** | **1 年**，**可刷新**（旧密钥续用 24 小时） |
+| 创建门槛 | 自助，Settings → Security | 组织管理员 + MFA |
+| 只读适配 | 可以（勾只读 scope） | **天然不支持任何写 scope**，与只读定位完全吻合 |
+
+**如果你们是 Organization / Enterprise 套餐，用计划访问令牌** —— 一年一续、可平滑轮换、不可能有写权限。个人 PAT 就接受每 90 天换一次。
+
+无论哪种，**换令牌都不需要重启 DSH**：凭据是每次操作重新解析的，且凭据文件带 `watch`，保存即生效。设计上我们**不存过期日期**（会漂移），而是捕获 403 时直接给出重录步骤。详见 `docs/PLAN.md` §4.4.1。
+
 ## 参考文献
 
 - Shi, Y., Zhang, W., Cui, T. — *A Programming Paradigm for Spatiotemporal Composability*, [arXiv:2608.25512](https://arxiv.org/abs/2608.25512)（北京大学 / DeepSeek-AI）。Cordis 的形式化基础，本方案的生命周期设计依据其 revertible effects / reactive coeffects 概念。

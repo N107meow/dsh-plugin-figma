@@ -358,7 +358,7 @@ figma_canvas({
 **限流参数为什么要写成"档位 × 席位"而不是一个数字。** Figma 的限流是三个因子的乘积：**席位类型**、**端点档位**、**资源所在套餐**。已确认席位是 Full/Dev，但套餐维度仍会咬人——官方原话是：用 PAT 请求一个 Starter 套餐里的文件，即使你在别的套餐有 Full 席位，该文件也是 **6 次/月**级别。所以：
 
 1. 默认按**最保守的 10/min** 起步（Starter 套餐下 Full 席位的 Tier 1 值），先安全再提速；
-2. 启动自检时用 `GET /v1/me`（Tier 3）探一次，正常返回说明额度可用；
+2. 自检探针用 **`GET /v1/files/:key/meta`（Tier 3）**，不用 `GET /v1/me`——原因见 §4.4.1；
 3. 每次响应读 **`X-Figma-Rate-Limit-Type`**（`high`=Full/Dev，`low`=View/Collab），据此把桶的上限**动态上调或下调**——这比在配置里猜数字可靠，也能在用户换 token、跨套餐取文件时自动适应；
 4. `429` 一律以 `Retry-After` 为准覆盖本地估算。
 
@@ -371,13 +371,40 @@ const ref = credentialRef(config.credentialRef)          // 'FIGMA_TOKEN'
 const hit = await ctx.credentials.resolve(ref)
 if (hit === undefined) {
   // 不抛硬错误：返回可操作指引，让模型/用户知道下一步做什么
-  return { kind: 'unconfigured', remedy: `运行 dsh 凭据设置或设置环境变量 ${config.credentialRef}` }
+  return { kind: 'unconfigured', remedy: `在 ~/.dsh/.credentials.yaml 的 refs 下加 ${config.credentialRef}` }
 }
 ```
 
 解析顺序天然覆盖环境变量 → 托管存储 → `.env`，所以**用户"只给一个 API token"这件事，三种投递方式都成立**，插件不需要关心他用哪种。
 
-请求头用官方示例里的 `Authorization: Bearer <PAT>`；为了兼容早期文档与历史写法，同时带上 `X-Figma-Token` 也无害（官方示例两种都出现过，见 §10）。
+请求头：**PAT 与计划访问令牌用 `X-Figma-Token`**（官方两种令牌的用法页都明确写这个头；REST API 限流页的示例用 `Authorization: Bearer`，两者都有效）。实现为：默认发 `X-Figma-Token`，并允许 config 覆盖成 `Authorization: Bearer` 以兼容。
+
+### 4.4.1 令牌生命周期：会过期，而且两种令牌差别很大
+
+**令牌会过期，这是设计约束而不是运维意外。** 官方事实：
+
+| | 个人访问令牌（PAT） | 计划访问令牌（Plan token） |
+|---|---|---|
+| 最长有效期 | **90 天**（官方对比表原文 "Max expiration of 90 days"） | **1 年**（365 天） |
+| 归属 | 绑定个人账号 | 绑定组织/企业套餐，不绑定个人 |
+| 能否刷新 | ❌ **不能刷新**，只能删掉重建 | ✅ 可刷新，**旧密钥还会继续有效 24 小时**（优雅切换窗口） |
+| 创建门槛 | 个人 Figma 设置 → Security 里自助生成 | 组织管理员 + 强制 MFA，在 `figma.com/developers/tokens` 生成 |
+| 只读适配度 | 可以（勾只读 scope） | **极佳**——官方明确说明计划令牌**不支持** `file_variables:write`、`file_code_connect:write`、`file_comments:write` 这些写 scope；但**也不支持 `/v1/me` 与 `/v1/oembed`** |
+| 可用范围 | 该用户能访问的一切 | 限制在套餐内，还可用资源白名单进一步收窄 |
+
+**如果你们是 Organization / Enterprise 套餐，计划访问令牌明显更优**：1 年有效期 + 可刷新 + 24 小时重叠期 + 天然不支持写 scope（与本插件只读定位完全吻合），且不必担心"某人离职后 token 失效"。唯一代价是它不支持 `GET /v1/me`——所以 §4.4 第 2 条的自检探针改用 `GET /v1/files/:key/meta`（Tier 3，很轻，且两种令牌都支持）。
+
+**令牌过期时 API 返回什么**：官方在 file 端点页把 `403` 定义为 *"The developer / OAuth token is invalid or expired"*。**注意是 403 而不是 401** —— 实现时两个都要按"凭据失效"处理，别只判断 401。
+
+**轮换的体验设计**（这是本条信息真正影响的部分）：
+
+1. **不做"自动刷新"**。只有计划令牌能刷新，且刷新动作在 Figma 的管理界面或 API 上，不是 agent 该碰的东西。也不要为了省事去存 OAuth 授权记录（本项目只读且用户只给 token）。
+2. **不在我们这边存"过期日期"**。存了就会漂移，还会给用户一种"系统知道什么时候过期"的错觉。**让 403 自己说话**：捕获到凭据失效时，错误结果直接给出可执行的补救步骤（`kind: 'token_expired'`）：
+   > Figma 令牌已失效或过期（403）。请到 Figma → Settings → Security → Personal access tokens 生成新令牌（只读 scope 即可），保存到 `~/.dsh/.credentials.yaml` 的 `refs.FIGMA_TOKEN`。凭据文件带 `watch`，**保存即生效，不需要重启**。
+3. **轮换无需重启，这件事由 DSH 已经保证**：`ctx.credentials.resolve()` 是**每次操作重新解析**的（官方文档明确要求不得跨操作缓存），加上凭据文件 `watch: true`，所以用户改完文件后，**下一个请求就用新令牌**——刚好覆盖"90 天到了、换一个"这个场景。
+4. **降级而不是崩**：令牌失效时，插件要给出确定性的可操作错误，且**其他插件不受影响**（§0.1 的 observational equivalence）。不要把令牌失效做成插件卸载或启动失败。
+
+> **给用户的一句话建议**：如果你们有 Org/Enterprise 套餐，用**计划访问令牌**（1 年 + 可刷新 + 无写权限）；否则用**只读 PAT**，并接受每 90 天换一次——换的时候直接改 `~/.dsh/.credentials.yaml`，保存即生效。
 
 ### 4.5 上下文管道（本方案的真正难点）
 
@@ -510,9 +537,9 @@ Figma 插件 (用户手动在 Figma 里运行一次)
 
 ```ts
 type FigmaError =
-  | { kind: 'unconfigured'; remedy: string }              // 没配 token
-  | { kind: 'unauthorized'; remedy: string }              // 401：token 无效/过期
-  | { kind: 'forbidden_scope'; scope: string; remedy }    // 403：缺 scope（变量 API 常见）
+  | { kind: 'unconfigured'; remedy: string }              // 凭据未配置
+  | { kind: 'token_expired'; remedy: string }             // 403：令牌无效或已过期（Figma 用 403，不是 401）
+  | { kind: 'forbidden_scope'; scope: string; remedy }    // 403：令牌有效但缺 scope（变量 API 常见）
   | { kind: 'not_found'; remedy: string }                 // 404：key 或 nodeId 错
   | { kind: 'rate_limited'; retryAfterSec: number; upgradeUrl?: string; tier: string }
   | { kind: 'too_large'; bytes: number; spoolPath: string; suggestion: string }
@@ -520,6 +547,13 @@ type FigmaError =
   | { kind: 'bridge_offline'; remedy: string }            // 插件桥不可用
   | { kind: 'upstream'; status: number; body: string }    // 其他
 ```
+
+**403 的两种含义必须区分开**，否则用户会被指向错误的补救动作：
+
+- `token_expired` —— 令牌本身失效/过期（§4.4.1）。remedy 指向"去 Figma → Settings → Security 重新生成，写回 `~/.dsh/.credentials.yaml`，保存即生效"。
+- `forbidden_scope` —— 令牌有效但 scope 不够。remedy 指向"给这个令牌补上 `file_variables:read`"。
+
+区分方式：读响应体里的 Figma 错误信息；无法区分时**默认报 `token_expired`**（因为过期是高频原因，且它给出的补救步骤是无害的）。**不自动重试 403** —— 重试不会让权限变多。
 
 每条 `remedy` 都要是**可执行的下一步**（"给这个 PAT 加上 `file_variables:read` scope"），而不是复述错误。
 
@@ -536,7 +570,7 @@ type FigmaError =
 
 - 每次调用 `ctx.emit('figma/call', {...})`（只发叶子字段，**不要序列化 live 对象**）；
 - 结果 meta 里回传 `bytes / cached / ms / ratelimitRemaining`，模型自己会据此调整策略（"刚才那次很贵，我换个方式"）；
-- 启动时自检：解析 token → 调 `GET /v1/me` → 检查关键 scope，失败只在日志告警，**不阻断加载**（避免一个坏 token 让整个 harness 起不来）。
+- 自检：解析凭据 → 用 `GET /v1/files/:key/meta`（Tier 3）探一次 → 校验返回。失败只在日志告警，**不阻断加载**（避免一个坏 token 让整个 harness 起不来）。**不用 `GET /v1/me`** —— 计划访问令牌不支持该端点（§4.4.1）。
 
 ---
 
@@ -615,7 +649,8 @@ type FigmaError =
 | 节点 id 的 `-`/`:` 混淆 | 高频低级失败 | 由 `target` URL 解析统一承担，并在错误里给出正确写法 |
 | 企业版 API（变量）权限 | 421/403 难懂 | 单独 spec + 明确 remedy 文案，不与其他错误混同 |
 | 插件桥依赖用户手动运行插件 | 体验断点 | 桥用 coeffect 声明，离线时工具根本不出现在表里（见 §4.3）；文档给出一次性接入步骤 |
-| 图片 URL 短期有效 | 复看时 403 | 立刻下载落盘 + 内容寻址命名，工具结果只给本地路径 |
+| 图片 URL 短期有效 | 复看时 403 | 官方说明图片资源 **30 天后过期**（image fills 的 URL ≤14 天）；故立刻下载落盘 + 内容寻址命名，工具结果只给本地路径 |
+| **令牌过期**（PAT 最长 90 天，且不可刷新） | 某天起全部调用 403 | 不存过期日期；捕获 403 报 `token_expired` 并给出重录步骤；`resolve` per-call + 凭据文件 watch 保证**改完即生效免重启**（§4.4.1） |
 | 重定向泄漏 token | 凭据泄漏 | 禁用自动重定向 |
 | Figma 改版限流策略 | 硬编码失效 | 限额做成 config（`tier` 档位），并读响应头自适应 |
 | **MCP 协议版本分裂**（见 §6 P2） | P2 适配器可能白写 | 只实现部署现有 SDK 支持的 `2025-11-25`；stateless 版留到 SDK 升级后，且只改动适配器一个文件 |
@@ -689,7 +724,10 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 
 **官方文档**：
 - [Figma REST API 认证](https://developers.figma.com/docs/rest-api/authentication/)：OAuth / plan token / PAT 三种；scope 概念（如 `file_content:read`）
-- [Figma REST API 限流](https://developers.figma.com/docs/rest-api/rate-limits/)：2025-11-17 新表；Tier 1/2/3 × 席位 × 套餐；leaky bucket；429 头 `Retry-After`、`X-Figma-Plan-Tier`、`X-Figma-Rate-Limit-Type`、`X-Figma-Upgrade-Link`；官方示例用 `Authorization: Bearer <TOKEN>`
+- [Figma 个人访问令牌](https://developers.figma.com/docs/rest-api/personal-access-tokens/)：最长 90 天；生成路径 Settings → Security；**用法页明确写 `X-Figma-Token` 头**；token 明文只显示一次
+- [Figma 计划访问令牌](https://developers.figma.com/docs/rest-api/plan-access-tokens/)：最长 1 年；可刷新且**旧密钥续用 24 小时**；不支持 `file_variables:write` / `file_code_connect:write` / `file_comments:write` / `/v1/me` / `/v1/oembed`；需组织管理员 + MFA
+- [Figma REST API 限流](https://developers.figma.com/docs/rest-api/rate-limits/)：2025-11-17 新表；Tier 1/2/3 × 席位 × 套餐；leaky bucket；429 头 `Retry-After`、`X-Figma-Plan-Tier`、`X-Figma-Rate-Limit-Type`、`X-Figma-Upgrade-Link`；示例用 `Authorization: Bearer`
+- [Figma 文件端点](https://developers.figma.com/docs/rest-api/file-endpoints/)：`GET /v1/files/:key` 的 `ids`/`depth`/`geometry`/`version`/`plugin_data`/`branch_data` 参数；`GET /v1/files/:key/nodes`、`GET /v1/images/:key`（`scale` 0.01–4、`format` png/jpg/svg/pdf）、`GET /v1/files/:key/images`、`GET /v1/files/:key/meta`（Tier 3，只用 `file_metadata:read`）；**403 定义为「token invalid or expired」**；图片资源 30 天过期、image fill URL ≤14 天
 - [Figma 插件 manifest](https://developers.figma.com/docs/plugins/manifest/)：`networkAccess.allowedDomains` 白名单机制、`ws`/`wss`/`http://localhost:<port>` 是合法 pattern、含本地服务器时 `reasoning` 必填、`documentAccess: 'dynamic-page'`
 - [Figma Plugin API 参考](https://developers.figma.com/docs/plugins/api/api-reference/) / [REST API](https://developers.figma.com/docs/rest-api/)
 
