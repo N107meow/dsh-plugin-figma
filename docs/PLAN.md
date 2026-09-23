@@ -2,11 +2,11 @@
 
 > 目标：把 Figma 的设计能力做成 DSH 里**可插拔的一等公民**——模型能用原生工具读懂一个 Figma 文件（结构 / 样式 / 变量 / 组件 / 截图），而不需要人肉截图粘贴。
 >
-> 状态：**设计定稿，等待开工指令**。包名 `dsh-figma`、交付形态 A only、只读、GitHub 分发——全部已定（§9）。P0 范围已冻结（§9.1.3）。文中所有关于 DSH 内部接口的结论，均已在本机部署上实测核对，出处标注在 §10。
+> 状态：**设计定稿，等待开工指令**。包名 `dsh-plugin-figma`、交付形态 A only、只读、npm + GitHub 双通道分发——全部已定（§9）。P0 范围已冻结（§9.1.3）。文中所有关于 DSH 内部接口的结论，均已在本机部署上实测核对，出处标注在 §10。
 >
 > **项目将开源，但范围是 DeepSeek Harness 插件**（受众 = 其他 DSH 用户）。由此产生的约束见 §12：主要是**默认值要面向更弱的 Figma 席位**，以及配置/排障的易用性——**不含多宿主分发**。
 >
-> **交付形态已确认：仅 A**（DSH 原生 Cordis 插件，P0 交付）。MCP 适配器（B）当前不做，但保留了「可随时补回」的 CI 可检查不变量（§12.3.1）。**分发：npm + GitHub 双通道**（§12.9.1）。包名待定——`dsh-figma` 已被占用（§9.1.2）。
+> **交付形态已确认：仅 A**（DSH 原生 Cordis 插件，P0 交付）。MCP 适配器（B）当前不做，但保留了「可随时补回」的 CI 可检查不变量（§12.3.1）。**分发：npm + GitHub 双通道**（§12.9.1）。包名 `dsh-plugin-figma`（§9.1.2）。
 
 ---
 
@@ -356,8 +356,8 @@ figma_call({ op:'file_nodes', ids, depth?, budget? })
 ### 4.1 目录结构
 
 ```
-dsh-figma/                        # 仓库根 = 包根（GitHub 分发要求，§12.9.1）
-├── package.json                  # name: "dsh-figma"；main → lib/index.js
+dsh-plugin-figma/                 # 仓库根 = 包根（GitHub 分发要求，§12.9.1）
+├── package.json                  # name: "dsh-plugin-figma"；main → lib/index.js
 ├── src/
 │   ├── core/                     # ⛔ 零 DSH 依赖、无 ctx（CI 门禁）
 │   │   ├── capability.ts         # CapabilitySpec 类型 + 校验（含只读断言）
@@ -499,8 +499,9 @@ figma_canvas({
 ```yaml
 # ~/.dsh/profiles/web/cordis.patch.yml
 - insert:
-    - id: figma-mcp
-      name: 'dsh-figma-mcp'
+    # ⚠️ 注意：name = 包名（loader 据此解析模块）；id = Cordis 行 id（可短）
+    - id: figma
+      name: 'dsh-plugin-figma'
       config:
         credentialRef: FIGMA_TOKEN       # 由 ctx.credentials 解析
         cacheTtlMs: 60000
@@ -954,9 +955,9 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 
 **成立前提（§4.1 的分层纪律）**：`core` 不含任何 DSH 依赖、不含 `ctx`，公开接口保持宿主中立。这条纪律**不是为了 B 才加的** —— 它是 §0.1 组件自足性的直接推论，同时买到三样东西：可独立测试、抗 DSH 版本漂移、以及**将来补 B 时不用重构**。
 
-### 9.1.2 包名：⚠️ **`dsh-figma` 在 npm 上已被占用**，需改（待你定）
+### 9.1.2 包名：**`dsh-plugin-figma`** ✅ 已定
 
-原本定为 `dsh-figma`。**实测 npm registry 后发现问题**：
+最初定为 `dsh-figma`。**实测 npm registry 后发现该名已被占用**，故改用 `dsh-plugin-figma`。以下保留冲突证据以备将来查阅：
 
 ```
 GET https://registry.npmjs.org/dsh-figma  ->  200（已存在）
@@ -973,16 +974,21 @@ GET https://registry.npmjs.org/dsh-figma  ->  200（已存在）
 1. **`dsh-figma` 这个名字在 npm 上不可用**（即使能申诉，也不该抢——对方先到）；
 2. **存在重复劳动的可能**。值得你在动手前花五分钟看一眼 `github.com/dushaobindoudou/dsh-figma`：如果对方已经做成了，也许协作比并行更好；如果只是个空占位，那就各做各的，但**名字必须换**。
 
-**候选名（均已实测可用）**：
+**最终选择：`dsh-plugin-figma`**（已实测在 npm 上可用）。选它而非 scope 形式的理由：无 scope 更好念、更短，且 `dsh-plugin-*` 直白表达了"DSH 的插件"。
 
-| 候选 | npm 状态 | 评价 |
+**命名统一表（这是唯一权威）**：
+
+| 位置 | 值 | 说明 |
 |---|---|---|
-| **`@<你的-npm-用户名>/dsh-figma`** | ✅ 可用（scope 未注册） | **推荐**。零撞名风险、归属清晰、符合社区惯例；代价是名字长一点 |
-| `dsh-plugin-figma` | ✅ 可用 | 无 scope、较好念；但 `dsh-plugin-*` 与生态里 `dsh-*` 的既有命名不完全一致 |
-| `deepseek-figma` | ✅ 可用 | ⚠️ 不建议：直接用 DeepSeek 商标做主名，比 Figma 商标风险更高 |
-| ~~`dsh-figma`~~ | ❌ 已被占用 | — |
+| npm `package.json` 的 `name` | **`dsh-plugin-figma`** | 唯一标识，安装与发布都用它 |
+| 仓库名 / 本地目录名 | `dsh-plugin-figma` | 与包名一致，避免两套名字 |
+| `cordis.patch.yml` 的 `name` 字段 | **`dsh-plugin-figma`** | loader 按此解析包（§12.9.1 实测） |
+| `cordis.patch.yml` 的 `id` 字段 | `figma` | **Cordis 行 id，不是包名**，可自由取短名 |
+| 插件模块导出的 `name` | **`figma`** | Cordis 插件名，用于日志/调试；**不必等于包名** |
+| cordis 事件前缀 | `figma/*` | |
+| 工具名前缀 | `figma_*` | 如 `figma_call`、`figma_capabilities` |
 
-> 文件与仓库名可以仍叫 `dsh-figma`（本地目录名不受 npm 约束），但 **`package.json` 的 `name` 必须是上表里选定的那个**。
+> ⚠️ **这是最容易搞混的一处**：`cordis.patch.yml` 里**同一个 row 有两个"名字"** —— `name:` 是**包名**（用于解析模块），`id:` 是**行 id**（用于 patch 定位与日志）。原稿把它们混用过（把 `name:` 写成包名之外的东西、或把 `id:` 当包名），现按上表固定。
 
 ### 9.1.3 P0 范围（已冻结，开工即按此执行）
 
@@ -1005,7 +1011,7 @@ GET https://registry.npmjs.org/dsh-figma  ->  200（已存在）
 - `config.ts` —— Schemastery config（`credentialRef` / `cacheTtlMs` / `maxResultBytes` / `spoolDir` / `rateLimits` / `bridgePort`）
 - `tools.ts` —— `figma_capabilities` / `figma_call`（3 个工具的 `figma_canvas` 留到 P3）
 
-**接线**：`~/.dsh/profiles/web/` 的 `package.json` 加依赖 + `cordis.patch.yml` insert 一行。**依赖名与 `package.json` 的 `name` 用 §9.1.2 最终选定的包名**（`dsh-figma` 在 npm 上不可用，本地目录名不受影响）。
+**接线**：`~/.dsh/profiles/web/` 的 `package.json` 加依赖 + `cordis.patch.yml` insert 一行。**依赖名与 `package.json` 的 `name` 均为 `dsh-plugin-figma`**；`cordis.patch.yml` 里 `name: 'dsh-plugin-figma'`、`id: figma`（§9.1.2 命名统一表）。
 
 **验收**：§6 P0 的 8 条（含两只真实文件的基准断言、半透明颜色回归、depth 守卫、令牌失效闭环）。
 
@@ -1256,7 +1262,7 @@ export FIGMA_TOKEN=figd_xxx
 ### 12.8 仓库与合规
 
 - **LICENSE**：建议 **MIT**（与 DSH / Cordis 生态一致，`vendor/cordis` 亦为 MIT；对工具类项目门槛最低）。若更在意专利授权条款，用 Apache-2.0。
-- **命名**：✅ 已定 **`dsh-figma`**（§9.1.2）——描述性命名，不宣称官方归属；README 明确"非 Figma 官方项目，未获 Figma 背书"。
+- **命名**：✅ 已定 **`dsh-plugin-figma`**（§9.1.2）——描述性命名，不宣称官方归属；README 明确"非 Figma 官方项目，未获 Figma 背书"。
 - **`SECURITY.md`**：本工具处理 PAT，需说明"令牌不落日志/不进错误体/不跟随重定向"（§5.5 已设计），并给出私密报告渠道。
 - **不要发布录制 fixtures**：§1.3/§1.4 的实测数据里含**你的**真实 fileKey、节点 id、文件名（`Design File A`、`Design File B`）以及你的 Figma handle。开源前必须：(a) 用脚本脱敏；(b) 或只保留合成 fixture；(c) 或录制成最小匿名样本。**这一步别忘，很容易随代码一起推上去。**
 - **CI**：`node --test` + 类型检查 + **§11 的纪律门禁**（只读断言、`core` 无 DSH import、卸载无残留）。
@@ -1280,11 +1286,10 @@ export FIGMA_TOKEN=figd_xxx
 **通道一：npm（推荐给用户，体验最好）**
 
 ```bash
-dsh plugin --profile web add <包名>     # 等价于在 profile 目录里 pnpm add
-# 或在 profile 目录里：pnpm add <包名>
+dsh plugin --profile web add dsh-plugin-figma     # 等价于在 profile 目录里 pnpm add
 ```
 
-- 前置：`package.json` 去掉 `private: true`、补 `license` / `repository` / `keywords` / `files`；
+- 前置：`package.json` **不能**设 `private: true`（根 `package.json` 已按此建好）、`license` / `repository` / `keywords` / `files` 已就位；
 - `files` 只放 `lib/`（+ README/LICENSE），源码不进包；
 - 加 `prepublishOnly` 跑构建 + 测试，**避免发出陈旧的 `lib/`**；
 - 建议开启 npm provenance（`--provenance`，需 CI 从 GitHub Actions 发布）——对一个要处理用户 Figma 令牌的包，这是很有说服力的信任信号。
@@ -1293,7 +1298,7 @@ dsh plugin --profile web add <包名>     # 等价于在 profile 目录里 pnpm 
 **通道二：GitHub（无需 npm 名）**
 
 ```bash
-pnpm add github:<user>/dsh-figma
+pnpm add github:<user>/dsh-plugin-figma
 ```
 
 - 优点：不占 npm 名、无需 npm 账号；
@@ -1309,10 +1314,10 @@ pnpm add github:<user>/dsh-figma
 
 | 验证项 | 结果 |
 |---|---|
-| 裸包名能否从 profile 的 `node_modules` 解析 | ✅ `import('dsh-figma')` → `name` 与 `apply` 都在 |
-| `cordis.patch.yml` 的 insert 行是否进入组合 | ✅ `--dump-config` 输出末段含 `- id: figma` / `name: dsh-figma` |
-| DSH 是否**真的加载并激活** | ✅ 启动日志出现 `[dsh-figma] wiring probe loaded` |
-| 卸载时 disposer 是否执行 | ✅ 同一次会话出现 `[dsh-figma] wiring probe unloaded` |
+| 裸包名能否从 profile 的 `node_modules` 解析 | ✅ `import('<包名>')` → `name` 与 `apply` 都在 |
+| `cordis.patch.yml` 的 insert 行是否进入组合 | ✅ `--dump-config` 输出末段含 `- id: figma` / `name: <包名>` |
+| DSH 是否**真的加载并激活** | ✅ 启动日志出现 `wiring probe loaded` 标记 |
+| 卸载时 disposer 是否执行 | ✅ 同一次会话出现 `wiring probe unloaded` 标记 |
 | 有无加载错误 | ✅ 无 |
 
 **结论：`pnpm add link:<clone 路径>` 这条路径可用**。在双通道方案里它是"最快路径"（无需 npm 账号、无需等发布），README 里作为开发/自用路径列出。
@@ -1330,17 +1335,17 @@ pnpm add github:<user>/dsh-figma
 **即 GitHub 可达但吞吐极低**，git 的低速保护会直接中止。所以：
 
 - **不把 `github:` 写进 README 主路径**，只在"备选"里提一句，并标注"未在本机验证"；
-- 由你来验（你的网络显然更好——实测你能正常访问 npm registry：1.7s 返回 200）：`pnpm add github:<user>/dsh-figma` 能否成功；
+- 由你来验（你的网络显然更好——实测你能正常访问 npm registry：1.7s 返回 200）：`pnpm add github:<user>/dsh-plugin-figma` 能否成功；
 - **npm 通道不受此影响**：npm registry 在本机**实测可达且很快**（`registry.npmjs.org` HTTP 200 / 1.77s），所以 `dsh plugin add <包名>` 这条主路径可以正常开发与验证。
 
 #### ⚠️ 结构问题（本次测试发现，会阻塞 GitHub 分发）
 
-`pnpm add github:<user>/<repo>` 装的是**仓库根**。而原方案的目录结构是 workspace 根 + `packages/adapter-dsh/` 子包 —— **`name: "dsh-figma"` 在子目录里，GitHub 安装拿不到它**。也就是说：按原结构，GitHub 分发**开箱就是坏的**。
+`pnpm add github:<user>/<repo>` 装的是**仓库根**。而原方案的目录结构是 workspace 根 + `packages/adapter-dsh/` 子包 —— **`name` 在子目录里，GitHub 安装拿不到它**。也就是说：按原结构，GitHub 分发**开箱就是坏的**。
 
 **修正：改成单一平铺包（放弃 workspace）。**
 
 ```
-dsh-figma/                      # 仓库根 = 包根，name: "dsh-figma"
+dsh-plugin-figma/               # 仓库根 = 包根，name: "dsh-plugin-figma"
 ├── package.json                # main → lib/index.js
 ├── src/
 │   ├── core/                   # ⛔ 禁 import @deepseek-ai/*、禁出现 ctx
@@ -1364,9 +1369,11 @@ dsh-figma/                      # 仓库根 = 包根，name: "dsh-figma"
 ### 12.10 开源清单（可直接当 checklist）
 
 - [ ] `LICENSE`（建议 MIT，与 DSH / Cordis 生态一致；`vendor/cordis` 亦为 MIT）
-- [ ] 包名避开 Figma 商标；⚠️ **`dsh-figma` 已被占用，需按 §9.1.2 改**；README 标注"非 Figma 官方项目"
-- [ ] npm 发布就绪：去 `private`、补 `license`/`repository`/`keywords`/`files`（只含 `lib/`）、`prepublishOnly` 跑构建与测试、考虑 `--provenance`（§12.9.1）
-- [ ] 发布前先看 `github.com/dushaobindoudou/dsh-figma` —— 同类项目，判断是协作还是并行（§9.1.2）
+- [ ] 包名 `dsh-plugin-figma`，README 标注"非 Figma 官方项目，未获 Figma 背书"
+- [ ] npm 发布就绪：**`private` 必须为 false/不存在**、`license`/`repository`/`keywords`/`files`（只含 `lib/`）、`prepublishOnly` 跑测试、考虑 `--provenance`（§12.9.1）
+- [ ] ⚠️ **把 `package.json` 与 README 里的 `<user>` 占位符换成你的真实 GitHub 用户名** —— npm 不会校验 `repository.url`，所以占位符会安静地发布成一个坏链接。建议加一条发布前检查：`! grep -rq '<user>' package.json README.md`
+- [ ] 跑一次 `bash scripts/verify-wiring.sh`，确认装配四项检查全绿（已内置）
+- [ ] 发布前先看 `github.com/dushaobindoudou/dsh-figma` —— 同类项目（占用了 `dsh-figma` 名字），判断是协作还是并行（§9.1.2）
 - [ ] ⚠️ **`lib/` 编译产物提交进仓库**，且 `.gitignore` **不再忽略 `lib/`** —— 否则 git 安装得到空包（§12.9.1）
 - [ ] `SECURITY.md`：说明令牌不落日志/不进错误体/不跟随重定向（§5.5），给出私密报告渠道
 - [ ] `README.md`：三条预期管理（§12.5）+ 只读 scope 清单 + 装配步骤

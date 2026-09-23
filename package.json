@@ -1,0 +1,44 @@
+{
+  "name": "dsh-plugin-figma",
+  "version": "0.0.0",
+  "description": "Read-only Figma design-source tools for DeepSeek Harness: inspect file structure, colors, typography and export images as native tools.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "cordis-plugin",
+    "figma",
+    "design",
+    "mcp"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "test:core": "node --test test/core/",
+    "prepublishOnly": "npm test",
+    "check:layering": "node scripts/check-layering.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<user>/dsh-plugin-figma.git"
+  },
+  "bugs": {
+    "url": "https://github.com/<user>/dsh-plugin-figma/issues"
+  },
+  "homepage": "https://github.com/<user>/dsh-plugin-figma#readme"
+}

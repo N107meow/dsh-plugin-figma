@@ -4,7 +4,7 @@
 
 > **当前状态：设计定稿，尚未开始编码（等待开工指令）。**
 >
-> 已确定的决策：包名 **`dsh-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**（包名待定，见下）。
+> 已确定的决策：包名 **`dsh-plugin-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**。
 >
 > P0 范围已冻结，见 `docs/PLAN.md` §9.1.3。
 
@@ -106,12 +106,12 @@ Figma 的两种令牌差别很大，选对了就省事：
 dsh plugin --profile web add <包名>
 ```
 
-> ⚠️ 包名待定：**`dsh-figma` 在 npm 上已被他人占用**（`dushaobindoudou` 于 2026-08-19 发布 `0.0.1` 占位版，做的是同类项目）。候选与建议见 `docs/PLAN.md` §9.1.2。
+> 注：最初选的 `dsh-figma` 在 npm 上已被他人占用（`dushaobindoudou`，2026-08-19 发布 `0.0.1` 占位版，做的是同类项目），故改用 **`dsh-plugin-figma`**。详见 `docs/PLAN.md` §9.1.2。
 
 **通道二 · GitHub（不占 npm 名）**
 
 ```bash
-cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-figma
+cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-plugin-figma
 ```
 
 > 未在本机验证 —— GitHub 可达但吞吐极低（git 报 `Less than 1000 bytes/sec`）。你的网络更好，请自行确认。
@@ -119,16 +119,17 @@ cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-figma
 **通道三 · clone + link（已实测通过，最快路径）**
 
 ```bash
-git clone <repo> ~/dsh-figma
-cd ~/.dsh/profiles/web && pnpm add link:~/dsh-figma
+git clone <repo> ~/dsh-plugin-figma
+cd ~/.dsh/profiles/web && pnpm add link:~/dsh-plugin-figma
 ```
 
 然后在 `cordis.patch.yml` 里 insert：
 
 ```yaml
 - insert:
+    # name = 包名（loader 据此解析模块）；id = Cordis 行 id（可短，用于 patch 定位与日志）
     - id: figma
-      name: '<包名>'
+      name: 'dsh-plugin-figma'
 ```
 
 **装配已端到端实测**（在隔离 profile 上验证，未动正在使用的 profile）：裸包名可从 profile 的 `node_modules` 解析 ✅ · insert 行进入组合 ✅ · **插件真的加载并激活** ✅ · **卸载时 disposer 执行** ✅ · 无加载错误 ✅
