@@ -182,6 +182,84 @@ Figma 的 paint 对象长这样：
 
 **(8) 其它结构事实**：整个 `/v1/files` payload 里 `document` 占 **100.0%**（1,305,357 / 1,305,964 bytes），顶层 `components` / `componentSets` / `styles` 都是空 map —— **所以体积全部来自文档树，`ids` + `depth` 就是正确的两个杠杆，没有第三个需要处理的膨胀源**。该文件有 8 个顶层画板（`保存流程示例`、`导出流程`/`导出流程2`、`整理流程`/`整理流程2`、`配置页`、`首页示例`、`识别流程`），每个画板内嵌一个 `Box` 深树。
 
+### 1.4 第二个文件：设计系统 + 明暗主题（`Design File B`）
+
+fileKey `Zz9Yy8Xx7Ww6Vv5Uu4Tt3S`，`link_access: plan_edit`，20 个顶层画板 = **10 对 `Light - Dashboard - N` / `Dark - Dashboard - N`**。这一轮验证了主题化配色提取，并**暴露两个新的实测坑**。
+
+**(1) 主题配对验证通过——投影器能正确区分明暗两套配色。**
+
+对同一仪表盘的明暗两版（`3:4` / `5:6`，各 **154 个节点**，均为 `depth=4`）跑投影：
+
+| | LIGHT (`3:4`) | DARK (`5:6`) |
+|---|---|---|
+| 原始 JSON | 123,328 chars (~34,258 tok) | 122,961 chars (~34,156 tok) |
+| 投影后 | 35,425 chars (~9,840 tok) | 35,105 chars (~9,751 tok) |
+| 压缩率 | **−71%** | **−71%** |
+| 配色数 | 9 | 12 |
+
+提取到的配色**语义上完全正确**：
+
+- **LIGHT**：`#FFFFFF`×104（底）、`#B8C5D3`×20、`#748AA1`×8、`#31394D`×6（深色文字/图形）、`#E8F0F8`×5、`#EBEDF4`×3、`#29CB97`×2（品牌绿）、`#D8D8D8`×2、`#F5F6FA`×1
+- **DARK**：`#FFFFFF`×104、`#545F69`×13、`#748AA1`×8、`#B8C5D3`×7、`#2C3135`×5、`#292E33`×4、`#29CB97`×2（品牌绿**保持不变**）、`#D8D8D8`×2、`#33393F`×2、`#363C43`×2、`#1F2327`×1、`#16191C`×1
+
+两个信号说明投影**没有把主题压平**：① 两版配色集合不同（9 vs 12）；② 中性色整体位移到深灰阶（`#2C3135`/`#292E33`/`#1F2327`/`#16191C`），而**品牌绿 `#29CB97` 在两版里都不变**——这正是设计系统该有的行为。字体两版一致（`Roboto 400 14/20/36px`），文本也一致（`Top places`、`60%`、`9.8%`）。
+
+**(2) ⚠️ 新坑：`depth` 参数会让文件级组件表"消失"。**
+
+`GET /v1/files/:key` 的响应里，**`components` / `componentSets` / `styles` 三个 map 只有在不传 `depth` 时才被填充**：
+
+| 请求 | 结果 |
+|---|---|
+| `/files/:key`（不传 depth） | `components` / `componentSets` / `styles` 是**空的**（0 项） |
+| `/files/:key?depth=1` | 三个 map 仍是 **0 项**，且 `document` 只剩页面骨架（985 bytes） |
+| `/files/:key?depth=2` | 三个 map 仍是 **0 项**（26,449 bytes） |
+
+> **但这不一定意味着文件里没有组件。** 官方文档说 `components` 是"node ID → 组件元数据"的映射，用于判断实例来源；而 `depth` 控制的是文档树遍历。**所以 `depth` 很可能同时抑制了这些映射的填充**——即"想要文件级组件清单，就不能给 `depth`"。这个推断**尚未用有组件的文件验证**，但已足以决定接口设计：**组件清单应当走专用端点，而不是从 `/files` 的 map 里捞**。实测确认 `GET /v1/files/:key/component_sets` 返回 `200 {"error":false,"status":200,"meta":{"component_sets":[]}}`——**注意它的结构是 `meta.component_sets`，与 `/files` 里的顶层 map 不同**，这是个容易写错的地方。
+
+**(3) `variables/local` 确认需要额外 scope（P1 的降级路径实测到位）。**
+
+`GET /v1/files/:key/variables/local` → **`403`**，错误体：
+```
+{"status":403,"error":true,"message":"Invalid scope(s): file_content:read, file_comments:read,
+ library_content:read, library_assets:read, file_dev_resources:read, file_metadata:rea…"}
+```
+注意措辞是 **`Invalid scope(s)`**（多个 s），且**列出的是该令牌实际持有的 scope**，然后（被截断处）才是缺失的那一个。P1 实现时必须能优雅降级成"你这个令牌缺 `file_variables:read`，且该端点可能还需要企业版套餐"，而不是抛一个裸 403。
+
+**(4) 规模警示：单个画板约 9,800 tokens。**
+
+这条对预算设计很关键：**一个 Dashboard 投影后就是 ~9,800 tokens**。20 个画板全读 ≈ **196,000 tokens**——必然爆上下文。所以：
+
+- **默认只投影、不返回原始树**（原稿的 `format: 'summary'` 默认值是对的）；
+- **默认 `depth` 需要按"节点数"动态收紧，而不能固定为 2 或 4**。建议：预算驱动——先按 `depth=2` 取，若节点数预估超阈值则只返回结构骨架（页面/画板层级 + 计数），细节留给 `ids` 定点取；
+- **spool 溢出的设计在这个文件上是必需的，不是保险**。
+
+**(5) 图片导出全链路验证通过。**
+
+`GET /v1/images/:key?ids=3:4&format=png&scale=1` → `200`，返回预签名 URL；下载得到 **264,688 bytes 的 PNG，1440×1024**（PNG IHDR 解析确认）。所以 §4.5(d) 的"取 URL → 立刻下载落盘 → 内容寻址命名 → 回传本地路径 + 持久 image block"链路成立。
+
+**(6) 这个文件其实不是"组件丰富"的设计系统。**
+
+实测 `components: 0`、`componentSets: 0`、`component_sets` 端点返回空数组、投影后 **`component instances: 0`**、**没有 `styleId`**。它是**一套视觉稿/资源稿**（20 个仪表盘稿），不是装配了 Figma 组件的设计系统——所以它**无法验证 P1 的组件/实例/样式语义**。
+
+> **结论：P1 需要另找一只真正装配了 Components / Component Sets / Styles 的文件。** 但本轮并非白跑——它把**主题化配色**这条最容易出错的路径验证扎实了，还暴露了上面 (2)(4) 两个坑。
+
+### 1.5 动态 `depth` 策略（由 §1.4 的规模问题推出）
+
+固定 `depth` 在两种文件上行不通：`Design File A` 的 `Box` 在 `depth=4` 时只有 18 个节点（5,879 chars，很轻），而 `Design File B` 的 Dashboard 在同样的 `depth=4` 下有 **154 个节点 / 35,425 chars（~9,840 tok）**。差 6 倍。所以：
+
+```
+figma_call({ op:'file_nodes', ids, depth?, budget? })
+  1. depth 未给 → 用默认 2（仅 ⚠️ 绝不允许缺省成"全树"）
+  2. 取回后先数节点数，不急着返回
+  3. 若 projected_size > budget（默认 8k tokens）：
+       a. 收紧到 depth=1 重取一次（便宜，Tier 1 已花掉的那次计入缓存）
+       b. 仍超 → 只回结构骨架：页面/画板层级 + 每层节点计数 + 配色/字体摘要
+       c. 完整投影结果 spool 到 .figma/<hash>.json，结果里给路径
+  4. 结果 meta 里回报：节点数、投影字节数、实际使用的 depth、是否 spool
+```
+
+第 4 条让**模型自己看得见成本**，它下一轮就会主动用 `ids` 收窄——这比插件单方面截断体验好得多。
+
 ---
 
 ## 2. MCP 五层 → DSH 运行时：映射与归属
@@ -638,7 +716,7 @@ type FigmaError =
 所以判别规则是：
 
 - **`401` + `err: "Invalid token"` → `token_invalid`**（过期 / 被撤销 / 抄错）。remedy 指向"去 Figma → Settings → Security 重新生成，只读 scope，写回 `~/.dsh/.credentials.yaml`，保存即生效"。
-- **`403` + `message` 含 `Invalid scope:` → `forbidden_scope`**。Figma **会把该令牌当前持有的全部 scope 列在错误体里**，所以可以直接解析出 `granted[]`，并据此告诉用户"缺 `file_variables:read`"，甚至提示"你这个令牌只有这几个 scope"。
+- **`403` + `message` 含 `Invalid scope` → `forbidden_scope`**。实测两种措辞都出现过：`Invalid scope: [...]`（`/v1/me`）与 **`Invalid scope(s): [...]`**（`/variables/local`）——所以匹配要用 `Invalid scope` 前缀匹配，别写死单复数。Figma **会把该令牌当前持有的全部 scope 列在错误体里**，可以直接解析出 `granted[]`，据此告诉用户"你只有这几个 scope"。（实测例：`GET /v1/files/:key/variables/local` → `403`，`message` 为 `"Invalid scope(s): file_content:read, file_comments:read, …"`。）
 - 官方文档把 403 描述为 *"token is invalid or expired"*，但**实测中令牌问题走 401**；为稳妥，**两种状态码都按认证失败处理**，再按响应体文案分流。
 
 **两种都不自动重试**——重试不会让权限变多、也不会让令牌复活。
@@ -718,7 +796,10 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 - 接线到 `~/.dsh/profiles/web/`，热重载生效
 
 **验收（端到端，不靠单元测试自我感动）**：
-1. **【基准已建立】** 对 `Design File A`（fileKey `Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`，节点 `11:12` = `首页示例/Box`，`depth=4`）跑通：投影后 ≤ 6,000 chars（实测 5,879），且能正确报出配色 `#111827 / #9CA3AF / #C4CCC8 / #F5F5F7 / #FFFFFF` 与字体层级 `Inter 400 10.5/12.5px`、`600 13px`、`700 18px`；
+1. **【基准已建立，两只文件】**
+   - `Design File A`（`Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`，节点 `11:12` = `首页示例/Box`，`depth=4`）：投影 ≤ 6,000 chars（实测 5,879），配色报出 `#111827 / #9CA3AF / #C4CCC8 / #F5F5F7 / #FFFFFF`，字体 `Inter 400 10.5/12.5px`、`600 13px`、`700 18px`；
+   - `Design File B`（`Zz9Yy8Xx7Ww6Vv5Uu4Tt3S`，节点 `3:4`/`5:6`，`depth=4`，各 154 节点）：投影 ~35,400 chars（−71%），且 **LIGHT/DARK 两版配色必须给出不同的集合**，品牌绿 `#29CB97` 在两版中都出现（§1.4(1) 有完整期望值，可直接作为断言）；
+
 2. **投影回归测试（必测）**：构造一个**半透明** fill（如 `{r:0.5,g:0.5,b:0.5,a:0.3}`），断言 hex 为 `#808080` 且 `opacity` 来自 `fill.opacity`——**防止 §1.3 第 7 条那个静默取错颜色的 bug 回归**；
 3. **`depth` 守卫测试**：传 `ids` 而不传 `depth` 时，断言插件自动补 `depth=2`，且响应体 < 10 KB（不得出现 48 KB / 1.19 MB 那种量级）；
 4. 给一个真实 Figma 设计链接，模型能说出：文件里有哪些页面、顶层 Frame 的结构、主色调 hex、主要字体与字号；
@@ -789,6 +870,8 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 | 全量文件 JSON 撑爆上下文 | 会话报废 | **已实测风险真实**：不传 `depth` 时 `?ids=13:14` 返 48,659 B、`?ids=1:2`（根）返 1,193,266 B ≈ 整个文件。对策：`ids` 强制成对补 `depth` 默认值 + 超限 spool + 摘要，永不失败 |
 | **静默取错颜色**（`color.a` 被当成透明度） | 模型读到错误配色，且不报错 | §1.3 第 7 条：hex 只取 rgb、opacity 只读 `fill.opacity`；半透明样本进回归测试 |
 | 长会话里文档树反复被拉取 | 额度耗尽 | 默认 `depth` 限制 + LRU/TTL 60s + 同参单飞；**注意 `ETag`/304 不可用（已实测），缓存只能靠 TTL** |
+| **单画板就 ~9,800 tokens**（实测） | 20 个画板全读 ≈ 196k tokens，必然爆上下文 | §1.5 动态 depth + 预算驱动收紧 + 骨架降级 + 强制 spool；结果 meta 回报成本让模型自我收窄 |
+| **`depth` 抑制文件级组件表**（实测） | 取组件清单取到空集，误判"此文件无组件" | §1.4(2)：组件清单走专用端点 `/files/:key/component_sets`（注意结构是 `meta.component_sets`），不做从 `/files` map 捞的假设 |
 | 模型幻觉出不存在的 op | 无意义失败 | registry 白名单校验，错误里回带可用 op 列表 |
 | 节点 id 的 `-`/`:` 混淆 | 高频低级失败 | 由 `target` URL 解析统一承担，并在错误里给出正确写法 |
 | 企业版 API（变量）权限 | 421/403 难懂 | 单独 spec + 明确 remedy 文案，不与其他错误混同 |
