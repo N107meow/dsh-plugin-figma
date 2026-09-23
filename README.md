@@ -76,24 +76,24 @@ Figma 的两种令牌差别很大，选对了就省事：
 
 **做不到的**：提前预警。Figma 不通过 API 暴露令牌签发时间或剩余有效期，所以"还有 7 天过期就提醒你"没有实现路径，只能失效后反应式处理。详见 `docs/PLAN.md` §5.4.1。
 
-## 开源化目标（`docs/PLAN.md` §12）
+## 开源范围（`docs/PLAN.md` §12）
 
-本项目计划开源，因此设计必须为**陌生人的环境**服务。有两处结构性改动：
+本项目将开源，**范围是 DeepSeek Harness 插件** —— 受众是其他 DSH 用户，不是多宿主通用工具。
 
-**1. MCP 适配器是主分发渠道，不是附加项。** Claude Code / Cursor / Codex / Windsurf 的用户装不了 Cordis 插件，只能走 MCP —— 那才是绝大多数用户。所以 MCP 适配器优先级从 P2 提到 **P1.5**。
+这决定了设计重点：
 
-**2. 安全默认值必须为最弱席位而设。** 本机是 Full/Dev（Tier 1 = 10–20/分），但开源用户里 View/Collab 席位占比很高，**Tier 1 只有 20 次/月**，且调用前无法得知。所以默认更保守（5/分，burst 1），靠运行时响应头放宽。
+**1. 默认值要面向更弱的 Figma 席位。** 本机是 Full/Dev（Tier 1 = 10–20/分），但别的 DSH 用户很可能是 View/Collab 席位 —— **Tier 1 只有 20 次/月**，且调用前无法得知。所以默认更保守（5/分，burst 1），靠运行时响应头放宽，并为月度上限单独做一档可理解的错误。
 
-**协议版本怎么处理**：不硬编码。实测 `@modelcontextprotocol/sdk` 已内建版本协商（`SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST`），所以代码里**永远不出现协议版本常量** —— SDK 升级即自动获得 `2026-07-28` 支持。2026 版的破坏性变更（移除 `initialize` 握手与会话）全部落在 SDK 内部，这正是"不手写协议"的价值。
+**2. 排障要自助。** `figma_doctor` 输出**可直接粘进 issue 的脱敏报告**（凭据来源、令牌有效性、实际持有的 scope、席位档位、一次端到端烟测、代理是否生效）。
 
-### 发布形态
+**3. 凭据层保持薄接口**（`TokenSource`），理由是可测试 + 抗 DSH 版本漂移（DSH 目前是 `0.1.5-rc` 预发布版）。
 
-```
-packages/core          →  @you/figma-core    零宿主依赖，库用户可直接用
-packages/adapter-mcp   →  @you/figma-mcp     npx 一行即用 —— 主分发形态
-packages/adapter-dsh   →  @you/figma-dsh     DSH 原生插件（可选 peerDependency）
-```
+### 主线仍然是 DSH 原生插件
 
-配套：`figma_doctor` 自诊断（输出可直接粘进 issue 的**脱敏**报告）、`docs/TOKEN_SETUP.md`（四种令牌投递方式）、issue 模板要求附 doctor 报告。
+MCP 适配器**降为可选 P2**（上一版曾建议把它当主渠道，那是基于错误的范围假设，已撤回）。主线用原生 Cordis 插件的理由：工具名干净（`figma_call` 而非 `mcp__figma__figma_call`）、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live` 热重载。
 
-> ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**，别随代码一起推上去。
+### 协议版本问题（无论走哪条路都不硬编码）
+
+实测 `@modelcontextprotocol/sdk` 已内建版本协商（`SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST`），所以**代码里永远不出现协议版本常量** —— SDK 升级即自动获得新版 MCP 支持。
+
+> ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**。完整清单见 `docs/PLAN.md` §12.10。
