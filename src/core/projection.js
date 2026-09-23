@@ -211,10 +211,183 @@ export function projectComponentProperties(properties) {
 }
 
 /**
+ * Resolve a node's `styles` references into readable names.
+ *
+ * The map looks like `{ fill: "1:2", text: "3:4" }` — a style *kind* to
+ * style *id*. Each reference becomes `{id}` plus the style's name and type when
+ * the response carried the style table. An unresolved reference keeps its id:
+ * a dangling id is still evidence the layer is styled, and guessing a name (or
+ * spending another request to find one) would be worse than saying nothing.
+ *
+ * @param {unknown} styles - Raw `styles` map from the node.
+ * @param {Map<string, unknown>|undefined} styleIndex - Style table from the same response.
+ * @returns {Record<string, unknown>|undefined} Resolved references, or `undefined` when the node has none.
+ */
+export function projectStyleRefs(styles, styleIndex) {
+  if (styles === null || typeof styles !== 'object' || Array.isArray(styles)) return undefined
+  /** @type {Record<string, unknown>} */
+  const out = {}
+  for (const [kind, ref] of Object.entries(/** @type {Record<string, unknown>} */ (styles))) {
+    if (typeof ref !== 'string' || ref.length === 0) continue
+    const known = styleIndex?.get(ref)
+    if (known === null || typeof known !== 'object') {
+      out[kind] = { id: ref }
+      continue
+    }
+    const record = /** @type {Record<string, unknown>} */ (known)
+    out[kind] = {
+      id: ref,
+      ...(typeof record.name === 'string' ? { name: record.name } : {}),
+      ...(typeof record.styleType === 'string' ? { styleType: record.styleType } : {}),
+    }
+  }
+  return Object.keys(out).length === 0 ? undefined : out
+}
+
+/**
+ * Parse variant properties out of a component name.
+ *
+ * The REST API carries no structured variant data: measured on a real file,
+ * `componentPropertyDefinitions` and `componentSetId` are absent from variant
+ * `COMPONENT` nodes, and `componentProperties` is absent from their `INSTANCE`
+ * nodes. The only place a variant exists is the name string, so it is parsed
+ * from there.
+ *
+ * Never throws: a name without variant syntax is simply a name, and callers
+ * keep the original string unchanged.
+ *
+ * @param {unknown} name - Component name, such as `Card/Ratio=2:3`.
+ * @returns {{base: string, variants: Record<string, string>}|undefined} Parsed form, or `undefined` when the name carries no variant syntax.
+ */
+export function parseVariantName(name) {
+  if (typeof name !== 'string' || name.length === 0) return undefined
+  const segments = name.split('/')
+  if (segments.length < 2) return undefined
+
+  /** @type {Array<[string, string]>} */
+  const properties = []
+  let index = segments.length
+  while (index > 0) {
+    const segment = segments[index - 1]
+    const separator = segment.indexOf('=')
+    // A trailing segment only counts as a variant when it is exactly `Key=Value`.
+    if (separator <= 0 || separator === segment.length - 1) break
+    const key = segment.slice(0, separator).trim()
+    const value = segment.slice(separator + 1).trim()
+    if (key.length === 0 || value.length === 0) break
+    properties.unshift([key, value])
+    index -= 1
+  }
+  if (properties.length === 0) return undefined
+
+  const base = segments.slice(0, index).join('/').trim()
+  if (base.length === 0) return undefined
+
+  /** @type {Record<string, string>} */
+  const variants = {}
+  for (const [key, value] of properties) variants[key] = value
+  return { base, variants }
+}
+
+/**
+ * Read one resource map out of a `/v1/files/:key` payload.
+ *
+ * Deliberately reads the payload's own map rather than the matching dedicated
+ * endpoint. Measured on one file and one version, back to back:
+ * `/files/:key/components` answered `{"meta":{"components":[]}}` while the same
+ * file's `/files?depth=2` carried `components=2` — because the dedicated
+ * endpoints list only what a team **published**, and the file's own resources
+ * need not be published. Reporting "this file has no components" for a file
+ * that plainly has them is the worst available failure mode, so the map wins.
+ *
+ * @param {unknown} raw - Raw response payload.
+ * @param {string} key - Which map to read.
+ * @returns {Array<{id: string, entry: Record<string, unknown>}>} Entries in payload order.
+ */
+function readResourceMap(raw, key) {
+  const source = raw !== null && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {}
+  const map = source[key]
+  if (map === null || typeof map !== 'object' || Array.isArray(map)) return []
+  /** @type {Array<{id: string, entry: Record<string, unknown>}>} */
+  const entries = []
+  for (const [id, value] of Object.entries(/** @type {Record<string, unknown>} */ (map))) {
+    if (value === null || typeof value !== 'object') continue
+    entries.push({ id, entry: /** @type {Record<string, unknown>} */ (value) })
+  }
+  return entries
+}
+
+/**
+ * Project a file's local components.
+ *
+ * @param {unknown} raw - Raw `/v1/files/:key` payload.
+ * @returns {{components: Array<Record<string, unknown>>, total: number}} Projected components.
+ */
+export function projectComponents(raw) {
+  const entries = readResourceMap(raw, 'components')
+  const components = entries.map(({ id, entry }) => {
+    const name = typeof entry.name === 'string' ? entry.name : ''
+    const parsed = parseVariantName(name)
+    return {
+      id,
+      name,
+      ...(typeof entry.key === 'string' ? { key: entry.key } : {}),
+      ...(typeof entry.description === 'string' && entry.description.length > 0 ? { description: entry.description } : {}),
+      ...(typeof entry.componentSetId === 'string' ? { componentSetId: entry.componentSetId } : {}),
+      ...(typeof entry.remote === 'boolean' ? { remote: entry.remote } : {}),
+      ...(parsed === undefined ? {} : { base: parsed.base, variants: parsed.variants }),
+    }
+  })
+  return { components, total: components.length }
+}
+
+/**
+ * Project a file's local component sets (variant groups).
+ *
+ * @param {unknown} raw - Raw `/v1/files/:key` payload.
+ * @returns {{componentSets: Array<Record<string, unknown>>, total: number}} Projected component sets.
+ */
+export function projectComponentSets(raw) {
+  const entries = readResourceMap(raw, 'componentSets')
+  const componentSets = entries.map(({ id, entry }) => ({
+    id,
+    name: typeof entry.name === 'string' ? entry.name : '',
+    ...(typeof entry.key === 'string' ? { key: entry.key } : {}),
+    ...(typeof entry.description === 'string' && entry.description.length > 0 ? { description: entry.description } : {}),
+    ...(typeof entry.remote === 'boolean' ? { remote: entry.remote } : {}),
+  }))
+  return { componentSets, total: componentSets.length }
+}
+
+/**
+ * Project a file's local styles.
+ *
+ * The discriminant is `styleType` (`FILL` / `TEXT` / `EFFECT` / `GRID`), **not**
+ * `type` — the two names differ and only one of them is populated.
+ *
+ * @param {unknown} raw - Raw `/v1/files/:key` payload.
+ * @returns {{styles: Array<Record<string, unknown>>, total: number}} Projected styles.
+ */
+export function projectStyles(raw) {
+  const entries = readResourceMap(raw, 'styles')
+  const styles = entries.map(({ id, entry }) => ({
+    id,
+    name: typeof entry.name === 'string' ? entry.name : '',
+    ...(typeof entry.styleType === 'string' ? { styleType: entry.styleType } : {}),
+    ...(typeof entry.key === 'string' ? { key: entry.key } : {}),
+    ...(typeof entry.description === 'string' && entry.description.length > 0 ? { description: entry.description } : {}),
+    ...(typeof entry.remote === 'boolean' ? { remote: entry.remote } : {}),
+  }))
+  return { styles, total: styles.length }
+}
+
+/**
  * Strip a node subtree down to the whitelist.
  *
  * @param {unknown} node - Raw Figma node.
- * @param {{maxTextChars?: number, includeGeometry?: boolean}} [options] - Projection options.
+ * @param {{maxTextChars?: number, includeGeometry?: boolean, styleIndex?: Map<string, unknown>}} [options] - Projection options.
+ *   `styleIndex` is optional: without it a style reference still survives, it
+ *   simply carries only its id.
  * @returns {Record<string, unknown>|undefined} Projected node, or `undefined` for a non-object.
  */
 export function projectNode(node, options = {}) {
@@ -261,6 +434,12 @@ export function projectNode(node, options = {}) {
 
   const componentProperties = projectComponentProperties(source.componentProperties)
   if (componentProperties !== undefined) out.componentProperties = componentProperties
+
+  // A node's `styles` map is how a design system is actually applied — it is
+  // the only link from a layer to a published style — so dropping it, as P0
+  // did, makes "which style does this use?" unanswerable.
+  const styles = projectStyleRefs(source.styles, options.styleIndex)
+  if (styles !== undefined) out.styles = styles
 
   if (Array.isArray(source.children) && source.children.length > 0) {
     const children = []
@@ -401,6 +580,43 @@ export function projectImageUrls(raw) {
 }
 
 /**
+ * Build the id → style lookup used to resolve a node's `styles` references.
+ *
+ * Both node endpoints ship a style map inside the same response: `/v1/files/:key`
+ * has it at the top level, while `/v1/files/:key/nodes` carries one per
+ * requested node. Merging them here means a reference is always resolved from
+ * data already in hand — no extra request.
+ *
+ * @param {Record<string, unknown>} source - Raw response payload.
+ * @param {Record<string, unknown>|undefined} nodes - The raw `nodes` map, when present.
+ * @returns {Map<string, {name?: string, styleType?: string, key?: string}>} Style index.
+ */
+function buildStyleIndex(source, nodes) {
+  /** @type {Map<string, {name?: string, styleType?: string, key?: string}>} */
+  const index = new Map()
+  const absorb = (map) => {
+    if (map === null || typeof map !== 'object' || Array.isArray(map)) return
+    for (const [id, entry] of Object.entries(/** @type {Record<string, unknown>} */ (map))) {
+      if (entry === null || typeof entry !== 'object') continue
+      const record = /** @type {Record<string, unknown>} */ (entry)
+      index.set(id, {
+        ...(typeof record.name === 'string' ? { name: record.name } : {}),
+        ...(typeof record.styleType === 'string' ? { styleType: record.styleType } : {}),
+        ...(typeof record.key === 'string' ? { key: record.key } : {}),
+      })
+    }
+  }
+  absorb(source.styles)
+  if (nodes !== null && typeof nodes === 'object') {
+    for (const entry of Object.values(/** @type {Record<string, unknown>} */ (nodes))) {
+      if (entry === null || typeof entry !== 'object') continue
+      absorb(/** @type {Record<string, unknown>} */ (entry).styles)
+    }
+  }
+  return index
+}
+
+/**
  * Project a whole document-tree payload.
  *
  * Handles both shapes the two node endpoints return: `/v1/files/:key` puts the
@@ -408,8 +624,8 @@ export function projectImageUrls(raw) {
  * requested node id to `{document}`.
  *
  * @param {unknown} raw - Raw response payload.
- * @param {{maxTextChars?: number, includeGeometry?: boolean}} [options] - Projection options.
- * @returns {Record<string, unknown>} Projected tree with palette, fonts, and statistics.
+ * @param {{maxTextChars?: number, includeGeometry?: boolean, styleIndex?: Map<string, unknown>}} [options] - Projection options.
+ * @returns {Record<string, unknown>} Projected tree with palette, effect colors, fonts, and statistics.
  */
 export function projectNodeTree(raw, options = {}) {
   const source = raw !== null && typeof raw === 'object' ? /** @type {Record<string, unknown>} */ (raw) : {}
@@ -422,6 +638,12 @@ export function projectNodeTree(raw, options = {}) {
   let file
 
   const nodes = source.nodes
+  // A node's `styles` references can only be resolved against the map that
+  // arrived in the same response, so the index is derived here rather than
+  // being the caller's problem.
+  const styleIndex = options.styleIndex ?? buildStyleIndex(source, nodes !== null && typeof nodes === 'object' ? /** @type {Record<string, unknown>} */ (nodes) : undefined)
+  const nodeOptions = { ...options, styleIndex }
+
   if (nodes !== null && typeof nodes === 'object') {
     for (const [id, entry] of Object.entries(/** @type {Record<string, unknown>} */ (nodes))) {
       const record = entry !== null && typeof entry === 'object' ? /** @type {Record<string, unknown>} */ (entry) : {}
@@ -431,11 +653,11 @@ export function projectNodeTree(raw, options = {}) {
         missing.push({ id, error })
         continue
       }
-      const projected = projectNode(document, options)
+      const projected = projectNode(document, nodeOptions)
       if (projected !== undefined) roots.push(projected)
     }
   } else if (source.document !== undefined) {
-    const projected = projectNode(source.document, options)
+    const projected = projectNode(source.document, nodeOptions)
     if (projected !== undefined) roots.push(projected)
     file = {}
     for (const field of ['name', 'lastModified', 'version', 'editorType']) {
@@ -445,6 +667,7 @@ export function projectNodeTree(raw, options = {}) {
   }
 
   const palette = collectPaletteMany(roots)
+  const effectColors = collectEffectColorsMany(roots)
   const fonts = collectFontsMany(roots)
   const stats = collectStats(roots)
 
@@ -454,23 +677,20 @@ export function projectNodeTree(raw, options = {}) {
     roots,
     ...(missing.length === 0 ? {} : { missing }),
     palette,
+    ...(effectColors.length === 0 ? {} : { effectColors }),
     fonts,
     stats,
   }
 }
 
 /**
- * Count color usage across a projected forest.
+ * Rank a color counter into a bounded, most-used-first list.
  *
- * @param {readonly unknown[]} roots - Projected roots.
- * @param {{limit?: number}} [options] - Collection options.
- * @returns {import('./types.js').PaletteEntry[]} Palette, most-used first.
+ * @param {Map<string, number>} counts - Hex to occurrence count.
+ * @param {number} limit - Maximum entries to return.
+ * @returns {import('./types.js').PaletteEntry[]} Ranked entries.
  */
-export function collectPaletteMany(roots, options = {}) {
-  /** @type {Map<string, number>} */
-  const counts = new Map()
-  for (const root of roots) collectPaletteInto(root, counts)
-  const limit = options.limit ?? DEFAULT_PALETTE_LIMIT
+function rankedPalette(counts, limit) {
   return [...counts.entries()]
     .map(([hex, count]) => ({ hex, count }))
     .sort((a, b) => b.count - a.count || a.hex.localeCompare(b.hex))
@@ -478,26 +698,75 @@ export function collectPaletteMany(roots, options = {}) {
 }
 
 /**
- * Count color usage in one projected node tree.
+ * Count paint colors across a projected forest.
+ *
+ * Split into fills and strokes, and **effects are not included**. A drop
+ * shadow's color is a real design decision, but it is not a fill: mixing the
+ * two let a plain shadow with no fill anywhere still read as "this design uses
+ * black". Effect colors are reported separately by
+ * {@link collectEffectColorsMany}.
+ *
+ * @param {readonly unknown[]} roots - Projected roots.
+ * @param {{limit?: number}} [options] - Collection options.
+ * @returns {{fills: import('./types.js').PaletteEntry[], strokes: import('./types.js').PaletteEntry[]}} Palette.
+ */
+export function collectPaletteMany(roots, options = {}) {
+  const limit = options.limit ?? DEFAULT_PALETTE_LIMIT
+  /** @type {Map<string, number>} */
+  const fillCounts = new Map()
+  /** @type {Map<string, number>} */
+  const strokeCounts = new Map()
+  for (const root of roots) collectPaintInto(root, fillCounts, strokeCounts)
+  return { fills: rankedPalette(fillCounts, limit), strokes: rankedPalette(strokeCounts, limit) }
+}
+
+/**
+ * Count paint colors in one projected node tree.
  *
  * @param {unknown} node - Projected node.
  * @param {{limit?: number}} [options] - Collection options.
- * @returns {import('./types.js').PaletteEntry[]} Palette, most-used first.
+ * @returns {{fills: import('./types.js').PaletteEntry[], strokes: import('./types.js').PaletteEntry[]}} Palette.
  */
 export function collectPalette(node, options = {}) {
   return collectPaletteMany([node], options)
 }
 
 /**
- * Accumulate paint colors from one projected node into a counter.
+ * Count effect colors (shadows, glows) across a projected forest.
+ *
+ * @param {readonly unknown[]} roots - Projected roots.
+ * @param {{limit?: number}} [options] - Collection options.
+ * @returns {import('./types.js').PaletteEntry[]} Effect colors, most-used first.
+ */
+export function collectEffectColorsMany(roots, options = {}) {
+  /** @type {Map<string, number>} */
+  const counts = new Map()
+  for (const root of roots) collectEffectInto(root, counts)
+  return rankedPalette(counts, options.limit ?? DEFAULT_PALETTE_LIMIT)
+}
+
+/**
+ * Count effect colors in one projected node tree.
  *
  * @param {unknown} node - Projected node.
- * @param {Map<string, number>} counts - Counter to update.
+ * @param {{limit?: number}} [options] - Collection options.
+ * @returns {import('./types.js').PaletteEntry[]} Effect colors, most-used first.
  */
-function collectPaletteInto(node, counts) {
+export function collectEffectColors(node, options = {}) {
+  return collectEffectColorsMany([node], options)
+}
+
+/**
+ * Accumulate fill and stroke colors from one projected node.
+ *
+ * @param {unknown} node - Projected node.
+ * @param {Map<string, number>} fillCounts - Fill counter to update.
+ * @param {Map<string, number>} strokeCounts - Stroke counter to update.
+ */
+function collectPaintInto(node, fillCounts, strokeCounts) {
   if (node === null || typeof node !== 'object') return
   const record = /** @type {Record<string, unknown>} */ (node)
-  for (const field of ['fills', 'strokes']) {
+  for (const [field, counts] of [['fills', fillCounts], ['strokes', strokeCounts]]) {
     const list = record[field]
     if (!Array.isArray(list)) continue
     for (const paint of list) {
@@ -506,6 +775,19 @@ function collectPaletteInto(node, counts) {
       if (typeof hex === 'string') counts.set(hex, (counts.get(hex) ?? 0) + 1)
     }
   }
+  const children = record.children
+  if (Array.isArray(children)) for (const child of children) collectPaintInto(child, fillCounts, strokeCounts)
+}
+
+/**
+ * Accumulate effect colors from one projected node.
+ *
+ * @param {unknown} node - Projected node.
+ * @param {Map<string, number>} counts - Counter to update.
+ */
+function collectEffectInto(node, counts) {
+  if (node === null || typeof node !== 'object') return
+  const record = /** @type {Record<string, unknown>} */ (node)
   const effects = record.effects
   if (Array.isArray(effects)) {
     for (const effect of effects) {
@@ -515,7 +797,7 @@ function collectPaletteInto(node, counts) {
     }
   }
   const children = record.children
-  if (Array.isArray(children)) for (const child of children) collectPaletteInto(child, counts)
+  if (Array.isArray(children)) for (const child of children) collectEffectInto(child, counts)
 }
 
 /**
@@ -641,6 +923,7 @@ export function buildSkeleton(projected, options = {}) {
     ...(projected.missing === undefined ? {} : { missing: projected.missing }),
     roots: roots.map((root) => skeletonNode(root, 1)).filter((node) => node !== undefined),
     palette: projected.palette,
+    ...(projected.effectColors === undefined ? {} : { effectColors: projected.effectColors }),
     fonts: projected.fonts,
     stats: projected.stats,
   }

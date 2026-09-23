@@ -51,13 +51,35 @@ import {
   upstream,
 } from './errors.js'
 import { DEFAULT_TIMEOUT_MS, figmaFetch, figmaFetchBytes, HttpError } from './http.js'
-import { DEFAULT_MAX_TEXT_CHARS, buildSkeleton, projectFileMeta, projectImageUrls, projectNodeTree } from './projection.js'
+import {
+  DEFAULT_MAX_TEXT_CHARS,
+  buildSkeleton,
+  projectComponents,
+  projectComponentSets,
+  projectFileMeta,
+  projectImageUrls,
+  projectNodeTree,
+  projectStyles,
+} from './projection.js'
 import { DEFAULT_RETRY_POLICY, withRetry } from './retry.js'
 import { DEFAULT_RATE_LIMITS, SingleFlight, TokenBucket } from './scheduler.js'
 import { createNullSpool } from './spool-sink.js'
 import { ALL_GROUPS, ALL_SPECS } from './specs/index.js'
 import { estimateBytes, serialize } from './tokens.js'
 import { describeUnparsableTarget, parseFigmaUrl } from './url.js'
+
+/**
+ * Why the directory has no variables capability.
+ *
+ * Figma's own scope reference marks `file_variables:read` as Enterprise-only,
+ * and the write scope is too. The capability is absent rather than present and
+ * failing, so the model learns the reason from the directory instead of from a
+ * failed call — and a personal account never sees an operation it can never
+ * perform.
+ */
+export const VARIABLES_UNSUPPORTED_NOTE =
+  'Variables are not supported: Figma exposes them only on Enterprise plans, ' +
+  'so the capability is deliberately absent rather than failing at call time.'
 
 /** Default soft ceiling on one tool result, in bytes. */
 export const DEFAULT_MAX_RESULT_BYTES = 262_144
@@ -402,6 +424,12 @@ export function createProvider(deps) {
         return projectFileMeta(raw)
       case 'imageUrls':
         return projectImageUrls(raw)
+      case 'components':
+        return projectComponents(raw)
+      case 'componentSets':
+        return projectComponentSets(raw)
+      case 'styles':
+        return projectStyles(raw)
       default:
         return raw
     }
@@ -670,6 +698,8 @@ export function createProvider(deps) {
       lines.push('')
       lines.push('Call again with detail="full" (optionally with query= or group=) to see the parameters of one capability.')
     }
+    lines.push('')
+    lines.push(VARIABLES_UNSUPPORTED_NOTE)
 
     return {
       text: lines.join('\n'),
@@ -677,6 +707,7 @@ export function createProvider(deps) {
       total: specs.length,
       groups: ALL_GROUPS,
       detail,
+      unsupported: { variables: VARIABLES_UNSUPPORTED_NOTE },
     }
   }
 

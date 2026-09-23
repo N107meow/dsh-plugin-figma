@@ -13,15 +13,17 @@
  */
 
 import { validateSpecs } from '../capability.js'
+import { componentSpecs } from './components.js'
 import { fileSpecs } from './files.js'
 import { imageSpecs } from './images.js'
+import { styleSpecs } from './styles.js'
 
 /**
  * Every capability this plugin declares, in listing order.
  *
  * @type {readonly import('../types.js').CapabilitySpec[]}
  */
-export const ALL_SPECS = Object.freeze([...fileSpecs, ...imageSpecs])
+export const ALL_SPECS = Object.freeze([...fileSpecs, ...imageSpecs, ...componentSpecs, ...styleSpecs])
 
 /** Every capability name, in listing order. */
 export const ALL_OP_NAMES = Object.freeze(ALL_SPECS.map((spec) => spec.name))

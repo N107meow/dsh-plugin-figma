@@ -101,6 +101,11 @@ export const FORBIDDEN_LITERALS = Object.freeze([
   'Chatel' + 'ier',
   '01【公众号@' + '资源设】',
   'N109' + 'meow',
+  // The private file's own component vocabulary, captured while designing P1.
+  // Guarded because these are exactly the strings a future test would be
+  // tempted to paste as a convenient literal.
+  'MyCard/Ratio' + '=2:3',
+  'MyCard/Ratio' + '=2:2',
 ])
 
 /**

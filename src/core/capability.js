@@ -22,6 +22,9 @@ const KNOWN_PARAM_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'ar
 /** Every parameter format the validator understands. */
 const KNOWN_PARAM_FORMATS = new Set(['nodeId'])
 
+/** Every projector the provider can dispatch to. */
+const KNOWN_PROJECTORS = new Set(['fileMeta', 'nodeTree', 'imageUrls', 'components', 'componentSets', 'styles', 'raw'])
+
 /**
  * Assert that a capability is read-only.
  *
@@ -61,7 +64,7 @@ export function validateSpec(spec) {
   if (typeof spec.path !== 'string' || !spec.path.startsWith('/v1/')) problems.push(`${where}: path must start with /v1/`)
   if (![1, 2, 3].includes(spec.tier)) problems.push(`${where}: tier must be 1, 2, or 3`)
   if (!['tiny', 'small', 'large', 'huge'].includes(spec.weight)) problems.push(`${where}: unknown weight`)
-  if (!['fileMeta', 'nodeTree', 'imageUrls', 'raw'].includes(spec.project)) problems.push(`${where}: unknown projector`)
+  if (!KNOWN_PROJECTORS.has(spec.project)) problems.push(`${where}: unknown projector`)
 
   const params = spec.params
   if (typeof params !== 'object' || params === null) {

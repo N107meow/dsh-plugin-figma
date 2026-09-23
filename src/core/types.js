@@ -38,7 +38,7 @@
  * @typedef {object} CapabilitySpec
  * @property {string} name - Stable identifier and the `op` value of `figma_call`.
  * @property {string} description - One line telling the model what it does and when to use it.
- * @property {'file'|'node'|'image'|'comment'|'component'|'variable'|'project'} group - Filter group for capability listing.
+ * @property {'file'|'node'|'image'|'comment'|'component'|'style'|'variable'|'project'} group - Filter group for capability listing.
  * @property {readonly string[]} [scopes] - Figma scopes this capability needs.
  * @property {'rest'|'plugin'} transport - `'rest'` calls Figma directly; `'plugin'` needs the canvas bridge (P3).
  * @property {'GET'} method - Read-only. **P0 declares `GET` only**; the union is kept narrow on purpose so the
@@ -58,7 +58,7 @@
  * Available projectors. Each one turns one raw Figma payload shape into a
  * model-friendly value and drops everything the model cannot use.
  *
- * @typedef {'fileMeta'|'nodeTree'|'imageUrls'|'raw'} ProjectorName
+ * @typedef {'fileMeta'|'nodeTree'|'imageUrls'|'components'|'componentSets'|'styles'|'raw'} ProjectorName
  */
 
 /**

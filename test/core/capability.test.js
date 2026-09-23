@@ -37,8 +37,18 @@ test('every declared capability is read-only', () => {
   }
 })
 
-test('the registry declares exactly the capabilities P0 promises', () => {
-  assert.deepEqual([...ALL_OP_NAMES], ['file', 'file_nodes', 'file_meta', 'image_render'])
+test('the registry declares exactly the capabilities this plugin promises', () => {
+  // P0's four, plus P1's three component/style capabilities. No variables
+  // capability: Figma exposes those on Enterprise plans only.
+  assert.deepEqual([...ALL_OP_NAMES], [
+    'file',
+    'file_nodes',
+    'file_meta',
+    'image_render',
+    'components',
+    'component_sets',
+    'styles',
+  ])
 })
 
 test('a non-GET capability is rejected at validation time', () => {

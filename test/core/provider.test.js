@@ -112,7 +112,7 @@ test('an undeclared op is refused with the available list', async () => {
   assert.equal(result.structuredContent.ok, false)
   const error = /** @type {Record<string, any>} */ (result.structuredContent.error)
   assert.equal(error.kind, 'bad_op')
-  assert.deepEqual(error.available, ['file', 'file_nodes', 'file_meta', 'image_render'])
+  assert.deepEqual(error.available, ['file', 'file_nodes', 'file_meta', 'image_render', 'components', 'component_sets', 'styles'])
 })
 
 test('an unparsable target is refused before any request', async () => {
@@ -481,7 +481,7 @@ test('the capability directory is progressive: names first, parameters on reques
   const { provider } = createHarness({})
   const names = provider.listCapabilities()
   assert.equal(names.detail, 'names')
-  assert.equal(names.ops.length, 4)
+  assert.equal(names.ops.length, 7)
   assert.match(names.text, /file_nodes — /)
   assert.equal(names.text.includes('default 2'), false)
 

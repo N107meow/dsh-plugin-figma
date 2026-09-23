@@ -13,6 +13,7 @@ import test from 'node:test'
 
 import {
   buildSkeleton,
+  collectEffectColors,
   collectFonts,
   collectPalette,
   collectStats,
@@ -140,16 +141,71 @@ test('the whitelist drops cold fields and keeps nested children', () => {
   assert.equal(frame.children[1].children[0].name, 'Nested note')
 })
 
-test('palette counts color usage across the tree', () => {
+test('palette counts fill and stroke colors across the tree, separately', () => {
   const projected = projectNode(syntheticFile().document)
   const palette = collectPalette(projected)
-  const byHex = Object.fromEntries(palette.map((entry) => [entry.hex, entry.count]))
-  assert.equal(byHex['#FFFFFF'], 1)
-  assert.equal(byHex['#808080'], 1)
-  assert.equal(byHex['#29CB97'], 1)
-  assert.ok(palette.every((entry) => /^#[0-9A-F]{6}$/.test(entry.hex)))
+
+  const fillHexes = Object.fromEntries(palette.fills.map((entry) => [entry.hex, entry.count]))
+  assert.equal(fillHexes['#FFFFFF'], 1)
+  assert.equal(fillHexes['#808080'], 1)
+  assert.equal(fillHexes['#29CB97'], 1)
+  assert.ok(palette.fills.every((entry) => /^#[0-9A-F]{6}$/.test(entry.hex)))
   // Most-used first.
-  assert.ok(palette[0].count >= palette[palette.length - 1].count)
+  assert.ok(palette.fills[0].count >= palette.fills[palette.fills.length - 1].count)
+
+  // The card's border is a stroke, so it must be counted as one — not as a fill.
+  const strokeHexes = Object.fromEntries(palette.strokes.map((entry) => [entry.hex, entry.count]))
+  assert.equal(strokeHexes['#C4CCC8'], 1)
+  assert.equal('stroke' in Object.fromEntries(palette.fills.map((e) => [e.hex, e])), false)
+})
+
+test('a shadow color is not a fill: effect colors are reported separately', () => {
+  // P1-0. A drop shadow with no fill anywhere used to make the palette report
+  // black, which reads as "this design uses black" rather than "this has a shadow".
+  const node = projectNode({
+    id: '1:1',
+    name: 'Shadowed',
+    type: 'FRAME',
+    fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 1 } }],
+    effects: [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 2 }, radius: 4 }],
+  })
+  const palette = collectPalette(node)
+  const effectColors = collectEffectColors(node)
+
+  assert.deepEqual(palette.fills, [{ hex: '#FFFFFF', count: 1 }])
+  assert.deepEqual(palette.strokes, [])
+  assert.deepEqual(effectColors, [{ hex: '#000000', count: 1 }])
+})
+
+test('effects alone leave the paint palette empty and still report their colors', () => {
+  const node = projectNode({
+    id: '1:1',
+    name: 'Glow',
+    type: 'RECTANGLE',
+    effects: [{ type: 'DROP_SHADOW', color: { r: 0.2, g: 0.8, b: 0.6, a: 0.4 }, offset: { x: 0, y: 0 }, radius: 8 }],
+  })
+  const palette = collectPalette(node)
+  assert.deepEqual(palette.fills, [])
+  assert.deepEqual(palette.strokes, [])
+  assert.equal(collectEffectColors(node).length, 1)
+})
+
+test('an effect sharing a fill color counts in both places without interfering', () => {
+  const node = projectNode({
+    id: '1:1',
+    name: 'Same',
+    type: 'FRAME',
+    fills: [{ type: 'SOLID', color: { r: 0, g: 0, b: 0, a: 1 } }],
+    effects: [{ type: 'DROP_SHADOW', color: { r: 0, g: 0, b: 0, a: 1 }, offset: { x: 0, y: 1 }, radius: 2 }],
+  })
+  assert.deepEqual(collectPalette(node).fills, [{ hex: '#000000', count: 1 }])
+  assert.deepEqual(collectEffectColors(node), [{ hex: '#000000', count: 1 }])
+})
+
+test('a tree with no effects reports none, so the field is simply absent from the projection', () => {
+  const projected = projectNodeTree({ document: { id: '0:0', name: 'Page', type: 'CANVAS' } })
+  assert.equal('effectColors' in projected, false)
+  assert.deepEqual(projected.palette, { fills: [], strokes: [] })
 })
 
 test('fonts are collected as a deduplicated typed scale', () => {
@@ -241,7 +297,8 @@ test('the skeleton keeps container shape, child counts, and the summaries', () =
   assert.equal(skeleton.roots[0].childCount, 1)
   assert.equal(skeleton.roots[0].children[0].childCount, 5)
   assert.equal(typeof skeleton.stats.nodeCount, 'number')
-  assert.ok(Array.isArray(skeleton.palette))
+  assert.ok(Array.isArray(skeleton.palette.fills))
+  assert.ok(Array.isArray(skeleton.palette.strokes))
   assert.ok(skeleton.note.length > 0)
 })
 
