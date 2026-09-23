@@ -88,12 +88,29 @@ Figma 的两种令牌差别很大，选对了就省事：
 
 **3. 凭据层保持薄接口**（`TokenSource`），理由是可测试 + 抗 DSH 版本漂移（DSH 目前是 `0.1.5-rc` 预发布版）。
 
-### 主线仍然是 DSH 原生插件
+### 交付形态：仅 DSH 原生插件
 
-MCP 适配器**降为可选 P2**（上一版曾建议把它当主渠道，那是基于错误的范围假设，已撤回）。主线用原生 Cordis 插件的理由：工具名干净（`figma_call` 而非 `mcp__figma__figma_call`）、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live` 热重载。
+**MCP 适配器当前不做。** 工具名干净（`figma_call` 而非 `mcp__figma__figma_call`）、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live` 热重载。
 
-### 协议版本问题（无论走哪条路都不硬编码）
+将来若需要 MCP 入口，补回来约 60–100 行、**不需要重构** —— 因为 `core` 保持协议无关，且这是被 CI 守住的架构不变量（`core` 无 `@deepseek-ai/*` 依赖、无 `ctx`、接口宿主中立），不是口头承诺。详见 `docs/PLAN.md` §12.3.1。
 
-实测 `@modelcontextprotocol/sdk` 已内建版本协商（`SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST`），所以**代码里永远不出现协议版本常量** —— SDK 升级即自动获得新版 MCP 支持。
+### 分发：只发 GitHub
+
+不发 npm。装配路径：
+
+```bash
+# 1. 拿到代码
+git clone <repo> && cd Figma-MCP-dsh
+
+# 2. 在 DSH profile 里装上（把 <path> 换成 clone 的位置）
+cd ~/.dsh/profiles/web
+pnpm add link:/path/to/Figma-MCP-dsh
+
+# 3. 配令牌：~/.dsh/.credentials.yaml 的 refs 下加 FIGMA_TOKEN
+# 4. 挂载：cordis.patch.yml 里 insert 一行
+# 5. 用 figma_doctor 自检
+```
+
+> ⚠️ 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整），否则用户装到的是空包。详见 `docs/PLAN.md` §12.9.1。
 
 > ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**。完整清单见 `docs/PLAN.md` §12.10。
