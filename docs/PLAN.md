@@ -356,48 +356,33 @@ figma_call({ op:'file_nodes', ids, depth?, budget? })
 ### 4.1 目录结构
 
 ```
-dsh-figma/                        # 仓库名与包名一致（§9.1.2）
-├── package.json                  # name: "dsh-figma"；main 指向 lib/
-├── pnpm-workspace.yaml
-├── docs/
-│   ├── PLAN.md                   # 本文
-│   ├── CAPABILITIES.md           # 能力清单（自动生成）
-│   └── WIRING.md                 # 接线步骤
-└── packages/
-    ├── core/                     # 协议无关核心，零 DSH 依赖，可独立测试
-    │   └── src/
-    │       ├── capability.ts     # CapabilitySpec 类型 + 运行时校验
-    │       ├── specs/            # ★ 能力声明表（数据）
-    │       │   ├── files.ts      # file / file_nodes / file_meta
-    │       │   ├── images.ts     # image_render / image_fills
-    │       │   ├── comments.ts
-    │       │   ├── components.ts
-    │       │   ├── variables.ts
-    │       │   ├── projects.ts
-    │       │   └── plugin.ts     # 走插件桥的能力
-    │       ├── auth.ts           # PAT 注入，Bearer / X-Figma-Token 双写
-    │       ├── http.ts           # fetch 薄封装：超时、AbortSignal、错误归一
-    │       ├── retry.ts          # 429 感知退避（读 Retry-After）
-    │       ├── scheduler.ts      # ★ 令牌桶 + 单飞 + 队列
-    │       ├── cache.ts          # LRU + TTL（ETag/304 已实测不可用）
-    │       ├── projection.ts     # ★ 节点树 → 模型友好结构
-    │       ├── budget.ts         # ★ 结果大小预算 + 溢出落盘
-    │       ├── url.ts            # Figma URL → fileKey/nodeId 解析
-    │       └── provider.ts       # ToolProvider 接口 + 实现
-    ├── adapter-dsh/              # Cordis 插件（host 面）
-    │   └── src/
-    │       ├── index.ts          # apply(ctx)：读凭据、建 provider、注册工具
-    │       ├── config.ts         # Schemastery config schema
-    │       ├── tools.ts          # 3 个工具的定义
-    │       ├── bridge-server.ts  # 插件桥 WebSocket 服务端
-    │       └── events.ts         # figma/* 事件（审计与可观测）
-    ├── adapter-mcp/              # ❌ 当前不做（§12.3.1）——分层纪律为它留了门，但目录不建
-    │   └── src/server.ts         # initialize / tools/list / tools/call
-    └── figma-plugin/             # (P3) 伴生 Figma 插件
-        ├── manifest.json         # networkAccess 白名单
-        ├── src/main.ts           # 沙箱侧：调 figma.* API
-        └── src/ui.ts             # iframe 侧：WebSocket 到 localhost
+dsh-figma/                        # 仓库根 = 包根（GitHub 分发要求，§12.9.1）
+├── package.json                  # name: "dsh-figma"；main → lib/index.js
+├── src/
+│   ├── core/                     # ⛔ 零 DSH 依赖、无 ctx（CI 门禁）
+│   │   ├── capability.ts         # CapabilitySpec 类型 + 校验（含只读断言）
+│   │   ├── specs/                # ★ 能力声明表（数据）
+│   │   │   ├── files.ts images.ts comments.ts
+│   │   │   └── components.ts variables.ts projects.ts
+│   │   ├── auth.ts               # TokenSource 薄接口（§12.1）+ 脱敏
+│   │   ├── http.ts retry.ts      # fetch 封装、429 退避、禁自动重定向
+│   │   ├── scheduler.ts cache.ts # 令牌桶 + 单飞；LRU + 纯 TTL
+│   │   ├── projection.ts         # ★ 节点树 → 模型友好结构（颜色归一）
+│   │   ├── budget.ts             # 动态 depth（§1.5）+ spool 溢出
+│   │   ├── url.ts                # Figma URL → {fileKey, nodeId}
+│   │   └── provider.ts           # 协议无关的 ToolProvider
+│   └── adapter/                  # DSH 接线（唯一允许 import DSH 之处）
+│       ├── index.ts              # apply(ctx, config)
+│       ├── config.ts             # Schemastery config
+│       └── tools.ts              # figma_capabilities / figma_call
+├── lib/                          # 构建产物，提交进仓库
+├── test/                         # node --test；core 的测试不 import DSH
+└── docs/ · README.md · LICENSE · .github/
 ```
+
+> 不再有 `packages/`、`pnpm-workspace.yaml`、`adapter-mcp/`（B 不做，§12.3.1）。将来若拆包，`src/core/` 已是自足目录，移动即可。
+
+
 
 **硬性分层纪律**：`core` 不得 import 任何 `@deepseek-ai/*`。这条纪律是可测试性与可移植性的全部来源——core 用 `node:test` + 本地 mock server 就能装满覆盖，不需要起 DSH。
 
@@ -981,7 +966,7 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 
 **目标**：拿一个 Figma 设计链接，模型能读懂文件结构、配色、字体，并导出截图当轮可见。**只读。**
 
-**`packages/core`**（零 DSH 依赖、无 `ctx`，§12.3.1 不变量）
+**`src/core/`**（零 DSH 依赖、无 `ctx`，§12.3.1 不变量。**注意是目录边界，不是单独的包** —— GitHub 分发要求仓库根即包根，见 §12.9.1）
 - `capability.ts` —— `CapabilitySpec` 类型 + 运行时校验（含 `method` 只读断言）
 - `specs/` —— files / nodes / images 三组声明式 spec（§4.2）
 - `url.ts` —— Figma URL → `{fileKey, nodeId}`，覆盖 `/file/`、`/design/`、`/board/`、`/proto/`、`/slides/`，含 `?node-id=12-345` → `12:345` 转换
@@ -993,7 +978,7 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 - `budget.ts` —— 动态 `depth` 策略（§1.5）+ 超限 spool + 骨架降级
 - `provider.ts` —— 协议无关的 `ToolProvider`
 
-**`packages/adapter-dsh`**
+**`src/adapter/`**（唯一允许 import DSH 之处）
 - `index.ts` —— `apply(ctx, config)`：`inject: ['tools','credentials']`、注册工具、全部副作用走 `ctx.effect()`
 - `config.ts` —— Schemastery config（`credentialRef` / `cacheTtlMs` / `maxResultBytes` / `spoolDir` / `rateLimits` / `bridgePort`）
 - `tools.ts` —— `figma_capabilities` / `figma_call`（3 个工具的 `figma_canvas` 留到 P3）
@@ -1266,41 +1251,65 @@ export FIGMA_TOKEN=figd_xxx
 | MCP 适配器 | 🔸 **降为可选 P2** | 面向"想用 MCP 入口的 DSH 用户"，非多宿主分发 |
 | 包结构 | ✅ **单包 + 分层**（撤回"发三个包"） | DSH 专属适配器没有第二个消费者 |
 
-### 12.9.1 分发路径：**只发 GitHub**（已决定）
+### 12.9.1 分发路径：**只发 GitHub**（已决定）+ 装配实测结果
 
-用户决定**不发布到 npm**，只通过 GitHub 分发。这带来几条具体的装配约束：
+#### ✅ `link:` 路径已端到端验证（2026-09，真机）
 
-**(1) 用户的安装方式**（写进 README 与 `docs/WIRING.md`）：
+在隔离 profile `~/.dsh/profiles/wiring-test/` 上用真插件跑通，**没有碰正在使用的 web profile**：
 
-```bash
-# 在 DSH profile 目录里装（本地路径，把 <path> 换成 clone 的位置）
-cd ~/.dsh/profiles/web
-pnpm add link:/path/to/Figma-MCP-dsh
+| 验证项 | 结果 |
+|---|---|
+| 裸包名能否从 profile 的 `node_modules` 解析 | ✅ `import('dsh-figma')` → `name` 与 `apply` 都在 |
+| `cordis.patch.yml` 的 insert 行是否进入组合 | ✅ `--dump-config` 输出末段含 `- id: figma` / `name: dsh-figma` |
+| DSH 是否**真的加载并激活** | ✅ 启动日志出现 `[dsh-figma] wiring probe loaded` |
+| 卸载时 disposer 是否执行 | ✅ 同一次会话出现 `[dsh-figma] wiring probe unloaded` |
+| 有无加载错误 | ✅ 无 |
 
-# 或直接从 GitHub 装（无需 clone）
-pnpm add github:<user>/Figma-MCP-dsh
+**结论：`pnpm add link:<clone 路径>` 这条路径可用**，且这是用户可以照着做的主路径。
+
+> 顺带确认了 loader 的解析行为（`cordis-plugin-loader/lib/index.js:270`）：对**裸包名**直接走 `import(name)`（Node 解析），对 `.` 开头的相对名才用 `baseUrl`。所以插件必须能从 **profile 的 `node_modules`** 解析到——这是 `link:`/`pnpm add` 的职责，**不是**在 `cordis.patch.yml` 里写文件路径。
+
+#### ❌ `github:` 路径**本机无法验证**（网络所致，非方案问题）
+
+实测证据：
+
+- `git ls-remote https://github.com/...` → `fatal: ... Operation too slow. Less than 1000 bytes/sec transferred the last 8 seconds`
+- `pnpm add --lockfile-only github:isaacs/rimraf` → 50 秒无任何输出、未生成 lockfile
+- `curl https://github.com` → HTTP 200 但 10 秒只收到 16 KB
+
+**即 GitHub 可达但吞吐极低**，git 的低速保护会直接中止。所以：
+
+- **不把 `github:` 写进 README 主路径**，只在"备选"里提一句，并标注"未在本机验证"；
+- 由你来验（你的网络显然更好——你之前能正常用 Figma 与 npm）：`pnpm add github:<user>/dsh-figma` 能否成功；
+- 主路径固定为 **clone + `link:`**，它已被实测证明可用。
+
+#### ⚠️ 结构问题（本次测试发现，会阻塞 GitHub 分发）
+
+`pnpm add github:<user>/<repo>` 装的是**仓库根**。而原方案的目录结构是 workspace 根 + `packages/adapter-dsh/` 子包 —— **`name: "dsh-figma"` 在子目录里，GitHub 安装拿不到它**。也就是说：按原结构，GitHub 分发**开箱就是坏的**。
+
+**修正：改成单一平铺包（放弃 workspace）。**
+
+```
+dsh-figma/                      # 仓库根 = 包根，name: "dsh-figma"
+├── package.json                # main → lib/index.js
+├── src/
+│   ├── core/                   # ⛔ 禁 import @deepseek-ai/*、禁出现 ctx
+│   │   ├── capability.ts / specs/ / url.ts / auth.ts
+│   │   ├── http.ts / retry.ts / scheduler.ts / cache.ts
+│   │   └── projection.ts / budget.ts / provider.ts
+│   └── adapter/                # DSH 接线（唯一允许 import DSH 的地方）
+│       ├── index.ts / config.ts / tools.ts
+├── lib/                        # 提交进仓库（git 安装不构建）
+└── test/
 ```
 
-> ⚠️ 上面两个 `pnpm` 形式是**官方文档化语法**，但**本次实测未能确认**——本机跑 `pnpm add github:…` 时网络挂起（3 分钟超时），所以"git 安装能否成功、是否需要在 profile 里额外配置"**属于待验证项**。P0 装配时第一件事就是把它跑通；跑不通则退回"用户 clone 后 `link:`"这一条路径，并在 README 里只写这一种。
+**为什么这样可行**：本插件**零外部运行时依赖**（用 Node 内建 `fetch`，MCP SDK 也用不到因为 B 不做），所以根本不需要 workspace 去做依赖隔离。分层的价值（§0.1 组件自足性、§12.3.1 的 B 可补回）**由目录边界 + CI 门禁**实现，而不是由包边界实现：
 
-**(2) 硬约束：git 安装不会执行构建，所以必须提交编译产物。**
+- CI gate：`src/core/**` 中 grep `@deepseek-ai/` 与 `ctx` 必须为 0 命中；
+- `src/core` 的测试不 import 任何 DSH，`node --test` 直接跑；
+- 将来若要拆包，`src/core/` 已经是一个自足的目录，移动即可。
 
-`pnpm add github:<user>/<repo>` 拉的是仓库内容，**不会跑 `prepare`/`build`**。因此：
-
-- **`lib/`（编译后的 ESM JS）必须提交进仓库**，`package.json` 的 `main` 指向它——与同 profile 里 `dsh-pale-green-tint` 的做法一致（它就是 `lib/index.js` + 提交的 `lib/client.js`）；
-- `.gitignore` 里**不要**忽略 `lib/`（当前 `.gitignore` 已经忽略了 `lib/`，**必须改**，否则用户装上的是空包）；
-- 源码用 `src/`，构建脚本 `pnpm build` 产出 `lib/`；**提交前跑一次构建**，CI 里加一条"`lib/` 与 `src/` 是否同步"的检查。
-
-**(3) 包名仍要是一个合法的 npm 名**（即使不发 npm）：`dsh-figma` 或 `@<你的scope>/dsh-figma`。原因：`pnpm add <spec>` 与 profile 的 `package.json` 都会用到它，非法名会直接报错。**同时避开 Figma 商标**（§12.8）。
-
-**(4) 结果：装配说明只有一条主路径**（比发 npm 简单，但也比 npm 多一步"用户得先拿到代码"）。README 里必须写清：
-
-```
-1. 拿到代码（git clone，或 pnpm add github:…）
-2. 在 ~/.dsh/.credentials.yaml 的 refs 下加 FIGMA_TOKEN
-3. 在 ~/.dsh/profiles/web/cordis.patch.yml 里 insert 一行
-4. 重启/热重载，然后用 figma_doctor 自检
-```
+> **代价**：失去 workspace 的物理依赖隔离（靠 CI 门禁补偿）；**收益**：GitHub 分发开箱可用，且少一层 pnpm workspace 复杂度。
 
 ### 12.10 开源清单（可直接当 checklist）
 

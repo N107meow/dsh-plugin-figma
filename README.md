@@ -100,21 +100,29 @@ Figma 的两种令牌差别很大，选对了就省事：
 
 ### 分发：只发 GitHub
 
-不发 npm。装配路径：
+不发 npm。**主路径 = clone + `link:`，已端到端实测通过**：
 
 ```bash
 # 1. 拿到代码
-git clone <repo> && cd Figma-MCP-dsh
+git clone <repo> ~/dsh-figma
 
-# 2. 在 DSH profile 里装上（把 <path> 换成 clone 的位置）
+# 2. 在 DSH profile 里装上
 cd ~/.dsh/profiles/web
-pnpm add link:/path/to/Figma-MCP-dsh
+pnpm add link:~/dsh-figma
 
 # 3. 配令牌：~/.dsh/.credentials.yaml 的 refs 下加 FIGMA_TOKEN
-# 4. 挂载：cordis.patch.yml 里 insert 一行
-# 5. 用 figma_doctor 自检
+# 4. 挂载：cordis.patch.yml 里 insert
+#      - insert:
+#          - id: figma
+#            name: 'dsh-figma'
+# 5. 重启后用 figma_doctor 自检
 ```
 
-> ⚠️ 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整），否则用户装到的是空包。详见 `docs/PLAN.md` §12.9.1。
+实测结论（在隔离 profile 上验证，未动正在使用的 profile）：裸包名可从 profile 的 `node_modules` 解析 ✅ · insert 行进入组合 ✅ · **插件真的加载并激活** ✅ · **卸载时 disposer 执行** ✅ · 无加载错误 ✅
+
+**`pnpm add github:<user>/dsh-figma` 未在本机验证** —— GitHub 可达但吞吐极低（git 报 `Less than 1000 bytes/sec`），所以只作为备选，请你自行验证。
+
+> 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整），否则用户装到的是空包。
+> 也因此**仓库根就是包根**（单一平铺包，不用 workspace）—— 否则 `github:` 安装会拿到没有 `name: dsh-figma` 的仓库根。
 
 > ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**。完整清单见 `docs/PLAN.md` §12.10。
