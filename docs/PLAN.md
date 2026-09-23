@@ -2,7 +2,7 @@
 
 > 目标：把 Figma 的设计能力做成 DSH 里**可插拔的一等公民**——模型能用原生工具读懂一个 Figma 文件（结构 / 样式 / 变量 / 组件 / 截图），而不需要人肉截图粘贴。
 >
-> 状态：设计稿 v1（待评审）。文中所有关于 DSH 内部接口的结论，均已在本机部署上实测核对，出处标注在 §10。
+> 状态：**设计定稿，等待开工指令**。包名 `dsh-figma`、交付形态 A only、只读、GitHub 分发——全部已定（§9）。P0 范围已冻结（§9.1.3）。文中所有关于 DSH 内部接口的结论，均已在本机部署上实测核对，出处标注在 §10。
 >
 > **项目将开源，但范围是 DeepSeek Harness 插件**（受众 = 其他 DSH 用户）。由此产生的约束见 §12：主要是**默认值要面向更弱的 Figma 席位**，以及配置/排障的易用性——**不含多宿主分发**。
 >
@@ -356,8 +356,8 @@ figma_call({ op:'file_nodes', ids, depth?, budget? })
 ### 4.1 目录结构
 
 ```
-Figma-MCP-dsh/
-├── package.json                  # workspace 根
+dsh-figma/                        # 仓库名与包名一致（§9.1.2）
+├── package.json                  # name: "dsh-figma"；main 指向 lib/
 ├── pnpm-workspace.yaml
 ├── docs/
 │   ├── PLAN.md                   # 本文
@@ -969,6 +969,39 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 
 **成立前提（§4.1 的分层纪律）**：`core` 不含任何 DSH 依赖、不含 `ctx`，公开接口保持宿主中立。这条纪律**不是为了 B 才加的** —— 它是 §0.1 组件自足性的直接推论，同时买到三样东西：可独立测试、抗 DSH 版本漂移、以及**将来补 B 时不用重构**。
 
+### 9.1.2 包名与仓库名：**`dsh-figma`** ✅ 已确认
+
+- `package.json` 的 `name` = **`dsh-figma`**（合法 npm 名；`pnpm add <spec>` 与 profile 的 `package.json` 都会用到它，非法名会直接报错）；
+- 仓库名同用 `dsh-figma`（GitHub 分发，§12.9.1）；
+- **避开 Figma 商标**：`dsh-figma` 是"DSH 的 Figma 插件"这一描述性命名，不宣称官方归属；
+- **README 必须标注"非 Figma 官方项目，未获 Figma 背书"**（§12.8）；
+- 装配说明里的名字：`pnpm add link:<clone 路径>` 后，`cordis.patch.yml` 里写 `name: 'dsh-figma'`（与同 profile 的 `dsh-pale-green-tint` 一致）。
+
+### 9.1.3 P0 范围（已冻结，开工即按此执行）
+
+**目标**：拿一个 Figma 设计链接，模型能读懂文件结构、配色、字体，并导出截图当轮可见。**只读。**
+
+**`packages/core`**（零 DSH 依赖、无 `ctx`，§12.3.1 不变量）
+- `capability.ts` —— `CapabilitySpec` 类型 + 运行时校验（含 `method` 只读断言）
+- `specs/` —— files / nodes / images 三组声明式 spec（§4.2）
+- `url.ts` —— Figma URL → `{fileKey, nodeId}`，覆盖 `/file/`、`/design/`、`/board/`、`/proto/`、`/slides/`，含 `?node-id=12-345` → `12:345` 转换
+- `auth.ts` —— `TokenSource` 薄接口（§12.1）+ 集中脱敏
+- `http.ts` / `retry.ts` —— fetch 封装、AbortSignal、429 读 `Retry-After` 退避、**禁止自动重定向**（防令牌泄漏）
+- `scheduler.ts` —— 令牌桶（默认 5/min、burst 1，§12.2）+ 同参单飞
+- `cache.ts` —— LRU + TTL 60s（**纯 TTL**，ETag/304 已实测不可用，§1.3）
+- `projection.ts` —— 白名单投影 + **颜色归一（hex 只取 rgb、opacity 只读 `fill.opacity`）**（§4.5a）
+- `budget.ts` —— 动态 `depth` 策略（§1.5）+ 超限 spool + 骨架降级
+- `provider.ts` —— 协议无关的 `ToolProvider`
+
+**`packages/adapter-dsh`**
+- `index.ts` —— `apply(ctx, config)`：`inject: ['tools','credentials']`、注册工具、全部副作用走 `ctx.effect()`
+- `config.ts` —— Schemastery config（`credentialRef` / `cacheTtlMs` / `maxResultBytes` / `spoolDir` / `rateLimits` / `bridgePort`）
+- `tools.ts` —— `figma_capabilities` / `figma_call`（3 个工具的 `figma_canvas` 留到 P3）
+
+**接线**：`~/.dsh/profiles/web/` 的 `package.json` 加 `dsh-figma` 依赖 + `cordis.patch.yml` insert 一行。
+
+**验收**：§6 P0 的 8 条（含两只真实文件的基准断言、半透明颜色回归、depth 守卫、令牌失效闭环）。
+
 ### 9.2 写操作：**不做**（已确认，只读）✅
 
 **决策：本插件只读。** 不实现任何会改变 Figma 云端真实数据的调用。这不是"默认关闭、可以打开的开关"，而是架构级约束——`allowWrites` 不作为可配置项暴露，因为**当前不存在任何合法取值**。
@@ -1216,7 +1249,7 @@ export FIGMA_TOKEN=figd_xxx
 ### 12.8 仓库与合规
 
 - **LICENSE**：建议 **MIT**（与 DSH / Cordis 生态一致，`vendor/cordis` 亦为 MIT；对工具类项目门槛最低）。若更在意专利授权条款，用 Apache-2.0。
-- **命名**：不要用 `figma-mcp` 这类可能撞商标的名字做主包名。建议 `figma-context-mcp` / `figma-rest-mcp`，并在 README 明确"非 Figma 官方项目，未获 Figma 背书"。
+- **命名**：✅ 已定 **`dsh-figma`**（§9.1.2）——描述性命名，不宣称官方归属；README 明确"非 Figma 官方项目，未获 Figma 背书"。
 - **`SECURITY.md`**：本工具处理 PAT，需说明"令牌不落日志/不进错误体/不跟随重定向"（§5.5 已设计），并给出私密报告渠道。
 - **不要发布录制 fixtures**：§1.3/§1.4 的实测数据里含**你的**真实 fileKey、节点 id、文件名（`Design File A`、`Design File B`）以及你的 Figma handle。开源前必须：(a) 用脚本脱敏；(b) 或只保留合成 fixture；(c) 或录制成最小匿名样本。**这一步别忘，很容易随代码一起推上去。**
 - **CI**：`node --test` + 类型检查 + **§11 的纪律门禁**（只读断言、`core` 无 DSH import、卸载无残留）。
