@@ -37,17 +37,18 @@
   "scripts": {
     "check:deps": "node scripts/check-deps.mjs",
     "check:layering": "node scripts/check-layering.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "verify": "npm run check:deps && npm run check:layering && npm run check:secrets && npm test",
     "test": "node --test test/",
     "test:core": "node --test test/core/",
-    "verify": "npm run check:deps && npm run check:layering && npm test",
     "prepublishOnly": "npm run verify"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<user>/dsh-plugin-figma.git"
+    "url": "git+https://github.com/N107meow/dsh-plugin-figma.git"
   },
   "bugs": {
-    "url": "https://github.com/<user>/dsh-plugin-figma/issues"
+    "url": "https://github.com/N107meow/dsh-plugin-figma/issues"
   },
-  "homepage": "https://github.com/<user>/dsh-plugin-figma#readme"
+  "homepage": "https://github.com/N107meow/dsh-plugin-figma#readme"
 }
