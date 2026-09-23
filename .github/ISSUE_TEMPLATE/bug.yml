@@ -1,0 +1,103 @@
+name: Bug 报告
+description: 插件行为不对、报错、或者读出来的结构不对
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请先跑一次 `npm run verify`，它能在没有网络和令牌的情况下覆盖大部分装配问题。
+
+        ⚠️ **提交前请脱敏**：不要贴 Figma 令牌，也不要贴真实设计文件的链接 / fileKey / 节点 id。需要举例时，用合成的 key（例如 `Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`）代替。
+
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: macOS 15.3 / Ubuntu 24.04 / Windows 11
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node 版本
+      description: 输出 `node -v`
+      placeholder: v22.14.0
+    validations:
+      required: true
+
+  - type: input
+    id: dsh
+    attributes:
+      label: DSH 版本
+      description: 输出 `dsh --version`（或你启动 DSH 的方式）
+      placeholder: 0.1.5-rc.3
+    validations:
+      required: true
+
+  - type: input
+    id: plugin
+    attributes:
+      label: 插件版本 / 安装方式
+      description: 例如 `0.1.0`，以及是 npm、`link:` 还是 GitHub 装的
+      placeholder: 0.1.0（pnpm add link:~/dsh-plugin-figma）
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 越具体越好——调用了哪个工具、`op` 是什么、`target` / `args` 长什么样（脱敏后）
+      placeholder: |
+        1. 让模型调用 `figma_call({ op: "file_nodes", target: "<合成链接>?node-id=12-345" })`
+        2. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望看到什么 / 实际看到什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: verify
+    attributes:
+      label: "`npm run verify` 输出"
+      description: 粘贴末尾若干行即可（门禁 + 测试统计）
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: structured-error
+    attributes:
+      label: 结构化错误（脱敏后）
+      description: |
+        `figma_call` 的失败**不抛异常**——它作为一次成功调用返回 `ok: false` 加一个分类过的 `error` 对象。
+        请把这段 JSON 原样贴出来（`kind` / `status` / `retryAfterSec` / `remedy` 这几个字段对定位很关键）。
+        如果问题不需要令牌、也没有错误对象，写"没有错误对象"。
+      render: json
+      placeholder: |
+        {
+          "op": "file_nodes",
+          "ok": false,
+          "error": {
+            "kind": "token_invalid",
+            "remedy": "…"
+          }
+        }
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: 脱敏确认
+      options:
+        - label: 我贴出的内容里**没有** Figma 令牌，也**没有**真实设计文件的链接 / fileKey / 节点 id / 图层名。
+          required: true
+        - label: 我读过 `SECURITY.md`，且这不是一个需要私下报告的安全问题（安全问题请走 Security Advisory）。
+          required: true

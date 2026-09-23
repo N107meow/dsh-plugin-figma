@@ -2,7 +2,9 @@
 
 把 Figma 设计文件变成 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 里模型能直接读的东西：文件结构、配色、字体层级，以及**当轮就能看见**的设计稿截图。**只读。**
 
-> **当前状态：P0 已完成并通过验收。**
+> ⚠️ 本项目**非 Figma 官方项目，未获 Figma 背书**。
+
+> **当前状态：P0 + P1 已完成并通过验收。**
 >
 > 决策已定：包名 **`dsh-plugin-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**。
 >
@@ -20,7 +22,7 @@
 
 为什么是两个而不是 130 个：工具定义是**每次请求都要付**的上下文税。实测本机 34 个工具的定义约 30.9k 字符（≈8.6k tokens）；把 Figma 的 130+ REST 端点各做一个工具会**再加约 3.3 万 tokens/请求**。所以能力做成**声明式数据表**（`src/core/specs/`），加一个端点 = 加一行数据，工具表长度不变。
 
-P0 提供 4 个能力：
+当前提供 7 个能力（P0 的 4 个 + P1 的 3 个）：
 
 | op | 用途 | 档位 |
 |---|---|---|
@@ -28,6 +30,16 @@ P0 提供 4 个能力：
 | `file` | 浅浅地读整个文件：页面 + 顶层 Frame 结构 | Tier 1 |
 | `file_nodes` | **首选入口**：按 node id 精确读一个或多个子树 | Tier 1 |
 | `image_render` | 导出 Frame 为图片，落盘 + 当轮作为图片块返回 | Tier 1 |
+
+P1 追加的 3 个能力：设计系统的语义。它们读的是 `/v1/files/:fileKey` 请求**自带的资源映射**，而不是专门的 `/components`、`/component_sets`、`/styles` 端点——实测后者只回答团队库里**已发布**的资源，对一个本地组件明明存在的文件会答"没有组件"，把两种视角混进一个能力会让模型理直气壮地说错话。`depth` 在 spec 里**固定为 2**、模型不可选：实测 `depth=1` 时映射为空，`depth=2` 才填充，且只要 6,338 B。
+
+| op | 用途 | 档位 |
+|---|---|---|
+| `components` | 列出本文件定义的组件（id / 名称 / 变体，变体从名称解析） | Tier 1 |
+| `component_sets` | 列出组件集（变体组）；空列表是真实答案 | Tier 1 |
+| `styles` | 列出本文件定义的样式（FILL / TEXT / EFFECT / GRID） | Tier 1 |
+
+**变量（Variables）不支持**：Figma 只在企业版开放该 API，且令牌还需额外 scope，所以本插件不做——`figma_capabilities` 的能力目录里对此有说明，模型自查就能看到，不会误以为漏了参数。
 
 典型用法：
 
@@ -106,7 +118,7 @@ refs:
 
 保存即生效，**不需要重启**（凭据是每次操作重新解析的）。也支持环境变量 `FIGMA_TOKEN`。
 
-令牌去哪拿、勾哪些 scope、为什么建议用计划访问令牌，见 [`docs/PLAN.md`](docs/PLAN.md) §4.4.1。插件需要的只读 scope：
+令牌去哪拿、勾哪些 scope、PAT 的坑（最长 90 天、明文只显示一次、不可刷新），见 **[`docs/TOKEN_SETUP.md`](docs/TOKEN_SETUP.md)**；为什么建议改用计划访问令牌，见 [`docs/PLAN.md`](docs/PLAN.md) §4.4.1。插件需要的只读 scope：
 
 ```
 file_content:read, file_metadata:read, file_comments:read, file_dev_resources:read
@@ -202,7 +214,7 @@ test/core/              # 不 import 任何 DSH，注入 fetch/时钟，可离�
 npm run verify             # deps + 分层门禁 + 全部测试（离线，不需要网络和令牌）
 npm run check:deps         # 三个宿主包可从本仓库解析
 npm run check:layering     # core 无宿主依赖 / 无 ctx；每条 spec 都是 GET
-npm test                   # 150 条测试
+npm test                   # 195 条测试（181 通过 / 14 跳过；跳过的都是真实数据用例）
 bash scripts/verify-wiring.sh   # 在隔离 profile 里端到端验证装配（会创建并删除临时 profile）
 ```
 
@@ -220,7 +232,7 @@ FIGMA_TEST_FILE_KEY=<key> FIGMA_TEST_NODE_ID=<id> FIGMA_TOKEN=<token> \
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | **P0** | core + 2 个工具 + 接线，端到端可用 | ✅ 完成 |
-| P1 | 设计系统语义（组件 / 变量 / 样式） | 未开始 |
+| P1 | 设计系统语义（组件 / 组件集 / 样式；变量不支持——Figma 仅企业版开放，能力目录中有说明） | ✅ 完成 |
 | P2 | MCP 适配器，可移植到其他宿主 | 当前不做（core 已具备条件） |
 | P3 | 伴生 Figma 插件 + 画布桥 + `figma_canvas` | 未开始 |
 
@@ -229,6 +241,13 @@ FIGMA_TEST_FILE_KEY=<key> FIGMA_TEST_NODE_ID=<id> FIGMA_TOKEN=<token> \
 - Shi, Y., Zhang, W., Cui, T. — *A Programming Paradigm for Spatiotemporal Composability*, [arXiv:2608.25512](https://arxiv.org/abs/2608.25512)（北京大学 / DeepSeek-AI）。Cordis 的形式化基础，本方案的生命周期设计依据其 revertible effects / reactive coeffects 概念。
 - [Figma REST API 文档](https://developers.figma.com/docs/rest-api/) · [Figma Plugin API 文档](https://developers.figma.com/docs/plugins/api/api-reference/)
 
-## 发布前必做
+## 脱敏与隐私
 
-`docs/PLAN.md` §1.3/§1.4 与 `docs/P0-IMPLEMENTATION.md` 的实测数据含真实 fileKey、节点 id、文件名与作者 handle。源码与测试已全部脱敏（`test/` 里没有任何真实 key），但这两份文档还没有——开源前必须脱敏或替换。完整清单见 `docs/PLAN.md` §12.10。
+本仓库的**全部实测数据来自真实的私有设计文件**，但真实标识符不随仓库发布：
+
+- 文档里的 fileKey、节点 id、文件名与作者 handle 已全部替换为**合成标识符**（例如 fileKey `Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`、文件名 `Design File A`）。合成 fileKey 仍是 22 位 `[A-Za-z0-9]`，所以文中关于长度、URL 形态与 `depth` 体积的结论依然成立。说明见 [`docs/PLAN.md`](docs/PLAN.md) 文首。
+- `test/` **只用合成 fixture**——断言写的是"某个组件有 40 字符的 key""变体名能被解析成 `{Ratio: '2:3'}`"这类与真实名称无关的事实。
+- 可能夹带私有内容的路径已被 `.gitignore` 忽略：`.env.*`、`.credentials.yaml`、`.figma/`（投影落盘与渲染图）、`fixtures/recorded/`。
+- `npm run check:secrets` 守门：它扫描**工作树**（已跟踪 + 未跟踪但未忽略）与 **git 历史**，命中真实令牌形态、真实 Figma 链接或已从本仓库移除的标识符即失败。合成标识符走 `scripts/check-secrets.mjs` 的 `SYNTHETIC_ALLOWLIST` 显式放行——新增一个合成值是一次**需要想清楚**的动作，而不是顺手通过。
+
+**给贡献者**：新增实测数据时，先问"这个字符串能不能反推出一个真实的 Figma 文件"。能，就不要提交——把 fixture 换成本地文件（走 `.env.local` 或忽略目录），只把**结论**写进测试与文档。

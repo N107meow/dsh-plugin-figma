@@ -1429,26 +1429,26 @@ dsh-plugin-figma/               # 仓库根 = 包根，name: "dsh-plugin-figma"
 
 ### 12.10 开源清单（可直接当 checklist）
 
-- [ ] `LICENSE`（建议 MIT，与 DSH / Cordis 生态一致；`vendor/cordis` 亦为 MIT）
-- [ ] 包名 `dsh-plugin-figma`，README 标注"非 Figma 官方项目，未获 Figma 背书"
-- [ ] npm 发布就绪：**`private` 必须为 false/不存在**、`license`/`repository`/`keywords`/`files`（只含 `lib/`）、`prepublishOnly` 跑测试、考虑 `--provenance`（§12.9.1）
-- [ ] ⚠️ **把 `package.json` 里的 `<user>` 占位符换成你的真实 GitHub 用户名** —— npm 不会校验 `repository.url`，所以占位符会安静地发布成一个坏链接（`repository.url` / `bugs.url` / `homepage` 三处）。发布前检查收窄到只查 `package.json`：
+- [x] `LICENSE`（建议 MIT，与 DSH / Cordis 生态一致；`vendor/cordis` 亦为 MIT）　→ ✅ 已落地：仓库根 `LICENSE`（MIT）。
+- [x] 包名 `dsh-plugin-figma`，README 标注"非 Figma 官方项目，未获 Figma 背书"　→ ✅ 包名见 §9.1.2；免责声明引用块已加在 README 开头（`> ⚠️ 本项目**非 Figma 官方项目，未获 Figma 背书**。`）。
+- [x] npm 发布就绪：**`private` 必须为 false/不存在**、`license`/`repository`/`keywords`/`files`（只含 `lib/`）、`prepublishOnly` 跑测试、考虑 `--provenance`（§12.9.1）　→ ✅ 已就位：`private` 不存在，`license`/`repository`/`bugs`/`homepage`/`keywords`/`engines`/`prepublishOnly` 全部写好。⚠️ **`files` 后来改成同时含 `src/`，是有意为之**：git 安装不执行构建，`lib/index.js` 是手写转发层、转发目标就是 `../src/adapter/index.js`，只发 `lib/` 会得到一个装不起来的包（与下一条 `lib/` 同源）。`--provenance` 留到真正发布时再定。
+- [x] ⚠️ **把 `package.json` 里的 `<user>` 占位符换成你的真实 GitHub 用户名** —— npm 不会校验 `repository.url`，所以占位符会安静地发布成一个坏链接（`repository.url` / `bugs.url` / `homepage` 三处）。发布前检查收窄到只查 `package.json`：
 
       ! grep -q '<user>' package.json
 
-  **`README.md` 与 `docs/` 里的 `github:<user>/…` 是给读者的占位语法，故意保留**，不要一起替换——把它们算进检查会让这条永远无法通过。
-- [ ] 跑一次 `bash scripts/verify-wiring.sh`，确认装配四项检查全绿（已内置）
-- [ ] **改名守卫**：`package.json` 的 `name` 是唯一权威；改名时用 `grep -rn '<旧名>' . --exclude-dir=.git` 收尾，**必须为 0 命中**。本次在 `dsh-plugin-figma` 与 `dsh-figma-plugin` 之间来回改名时，`repository.url` 之外的 `bugs` / `homepage` 两个 URL 就漏改过（一致性自查抓到的）。**另一个真实教训：全局替换脚本会连「历史存档」一起改掉**（本次就把它改成过自相矛盾的文本），所以文档里的旧名存档必须**显式豁免**于替换之外。
-- [ ] 发布前先看 `github.com/dushaobindoudou/dsh-figma` —— 同类项目（占用了 `dsh-figma` 名字），判断是协作还是并行（§9.1.2）
-- [ ] ⚠️ **`lib/` 编译产物提交进仓库**，且 `.gitignore` **不再忽略 `lib/`** —— 否则 git 安装得到空包（§12.9.1）
-- [ ] `SECURITY.md`：说明令牌不落日志/不进错误体/不跟随重定向（§5.5），给出私密报告渠道
-- [ ] `README.md`：三条预期管理（§12.5）+ 只读 scope 清单 + 装配步骤
-- [ ] `docs/TOKEN_SETUP.md`：DSH 凭据为主路径
-- [ ] `.github/ISSUE_TEMPLATE/bug.yml`：必填 `figma_doctor` 报告
-- [ ] `CONTRIBUTING.md`：讲清"**加能力 = 加一条 spec 数据**"（§4.2）——这是本架构对贡献者最友好的点，不写就没人知道
-- [ ] `figma_doctor` 输出**脱敏**报告
-- [ ] **CI 门禁**（§11 的纪律变成可执行检查）：只读断言、`core` 无 DSH import、卸载无残留、全 spec 均为 `GET`
-- [ ] ⚠️ **源码与 fixtures 脱敏**：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须剔除或换合成样本再推**
+  **`README.md` 与 `docs/` 里的 `github:<user>/…` 是给读者的占位语法，故意保留**，不要一起替换——把它们算进检查会让这条永远无法通过。　→ ✅ 已替换为 `N107meow`（`repository.url` / `bugs.url` / `homepage` 三处一致，`grep -c '<user>' package.json` = 0）；README / `docs/` 里的占位语法按原意保留。
+- [x] 跑一次 `bash scripts/verify-wiring.sh`，确认装配四项检查全绿（已内置）　→ ✅ 脚本已内置，四个检查项写死在脚本里；`link:` 装配路径已在本机端到端验证通过（§12.9.1「✅ `link:` 路径已端到端验证（2026-09，真机）」）。
+- [x] **改名守卫**：`package.json` 的 `name` 是唯一权威；改名时用 `grep -rn '<旧名>' . --exclude-dir=.git` 收尾，**必须为 0 命中**。本次在 `dsh-plugin-figma` 与 `dsh-figma-plugin` 之间来回改名时，`repository.url` 之外的 `bugs` / `homepage` 两个 URL 就漏改过（一致性自查抓到的）。**另一个真实教训：全局替换脚本会连「历史存档」一起改掉**（本次就把它改成过自相矛盾的文本），所以文档里的旧名存档必须**显式豁免**于替换之外。　→ ✅ 当前名 `dsh-plugin-figma` 稳定，命名统一表（§9.1.2）是唯一权威；上面那条真实教训就是本节保留下来的原因。
+- [ ] 发布前先看 `github.com/dushaobindoudou/dsh-figma` —— 同类项目（占用了 `dsh-figma` 名字），判断是协作还是并行（§9.1.2）　→ ⏳ 名字层面的判断已完成（§9.1.2：对方是 `0.0.1` 占位版，故本仓库改名 `dsh-plugin-figma`）；但"**动手前花五分钟看一眼仓库**"是**发布动作的一部分**，还没到那一步，故保持未勾选。
+- [x] ⚠️ **`lib/` 编译产物提交进仓库**，且 `.gitignore` **不再忽略 `lib/`** —— 否则 git 安装得到空包（§12.9.1）　→ ✅ `lib/index.js` 已提交，`.gitignore` 里那段注释显式说明**不忽略 `lib/`** 及原因（严格说它不是编译产物，而是手写转发层；没有任何构建步骤，所以 `src/` 也一起发）。
+- [x] `SECURITY.md`：说明令牌不落日志/不进错误体/不跟随重定向（§5.5），给出私密报告渠道　→ ✅ 本任务新建 `SECURITY.md`（令牌处理 / 只读四层机制 / 本地敏感文件 / 私密报告渠道），并按实现补两条：脱敏同时覆盖 percent-encoded 形态、取签名图片 URL 时不带令牌。
+- [x] `README.md`：三条预期管理（§12.5）+ 只读 scope 清单 + 装配步骤　→ ✅ 三项都在（只读 / PAT 最长 90 天且不可刷新 / 弱席位额度）；本任务又补了免责声明、7 个能力表与「脱敏与隐私」一节。
+- [x] `docs/TOKEN_SETUP.md`：DSH 凭据为主路径　→ ✅ 本任务新建（获取路径 / 四项只读 scope / `.credentials.yaml` 为主路径 + 环境变量兜底 / PAT 三个坑 / 轮换与失效排查），README §3 已链过去。
+- [ ] `.github/ISSUE_TEMPLATE/bug.yml`：必填 `figma_doctor` 报告　→ ⏳ 模板本身已建（本任务，任务 7 可选），但**刻意不引用尚未实现的 `figma_doctor`**（延期至 P1.5），改为要求贴 `npm run verify` 输出与脱敏后的结构化错误。按原措辞（必填 `figma_doctor` 报告）这条仍不成立，故保持未勾选。
+- [x] `CONTRIBUTING.md`：讲清"**加能力 = 加一条 spec 数据**"（§4.2）——这是本架构对贡献者最友好的点，不写就没人知道　→ ✅ 本任务新建，含一条可直接照抄的 spec 示例、加载期校验覆盖的字段清单，以及"要加投影器时四处一起动"的对照表。
+- [ ] `figma_doctor` 输出**脱敏**报告　→ ⏳ 能力本身延期至 P1.5（§12.4），本条随之延后；脱敏要求已写进 `SECURITY.md` 与 `CONTRIBUTING.md`。
+- [ ] **CI 门禁**（§11 的纪律变成可执行检查）：只读断言、`core` 无 DSH import、卸载无残留、全 spec 均为 `GET`　→ ⏳ 四项里**三项已落地**：只读断言（派发前 `assertReadOnly` + `check:layering` 静态）、`core` 无 DSH import、全 spec 均为 `GET`，都由 `npm run check:layering` 覆盖、进 `npm run verify`，另有 `test/core/layering.test.js` 证明门禁**会**失败。**「卸载无残留」还没有自动化检查**（`ctx.effect` 的 disposer 都写了，但没有测试证明它），**GitHub Actions 接线也未做**——两项都留给推送方案。
+- [x] ⚠️ **源码与 fixtures 脱敏**：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须剔除或换合成样本再推**　→ ✅ 源码、fixtures **与文档**均已脱敏（合成标识符见本文文首说明）；真实值进了 `scripts/check-secrets.mjs` 的 `FORBIDDEN_LITERALS`，并已用一次 git 历史改写（`git filter-repo`）从历史中剔除，现在由 `npm run check:secrets`（工作树 + git 历史）守门，当前全绿。
 
 ---
 
