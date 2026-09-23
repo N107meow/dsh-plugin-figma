@@ -84,7 +84,7 @@ cd ~/.dsh/profiles/web && pnpm add link:~/dsh-plugin-figma
 dsh plugin --profile web add dsh-plugin-figma
 
 # 通道三 · GitHub（不占 npm 名；本机网络吞吐 <1000 B/s，未在此验证）
-cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-plugin-figma
+cd ~/.dsh/profiles/web && pnpm add github:N107meow/dsh-plugin-figma
 ```
 
 ### 2. 挂载
