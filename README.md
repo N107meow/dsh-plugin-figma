@@ -75,3 +75,25 @@ Figma 的两种令牌差别很大，选对了就省事：
 做法是把失效变成一条**活跃的补救指令**而不是失败的调用：工具返回结构化的 `token_invalid` + 具体步骤（去哪生成、勾哪些只读 scope、写到 `~/.dsh/.credentials.yaml` 的哪一行），并明确授权模型**主动找你换令牌、换完自动重试**。这样闭环是完整的。
 
 **做不到的**：提前预警。Figma 不通过 API 暴露令牌签发时间或剩余有效期，所以"还有 7 天过期就提醒你"没有实现路径，只能失效后反应式处理。详见 `docs/PLAN.md` §5.4.1。
+
+## 开源化目标（`docs/PLAN.md` §12）
+
+本项目计划开源，因此设计必须为**陌生人的环境**服务。有两处结构性改动：
+
+**1. MCP 适配器是主分发渠道，不是附加项。** Claude Code / Cursor / Codex / Windsurf 的用户装不了 Cordis 插件，只能走 MCP —— 那才是绝大多数用户。所以 MCP 适配器优先级从 P2 提到 **P1.5**。
+
+**2. 安全默认值必须为最弱席位而设。** 本机是 Full/Dev（Tier 1 = 10–20/分），但开源用户里 View/Collab 席位占比很高，**Tier 1 只有 20 次/月**，且调用前无法得知。所以默认更保守（5/分，burst 1），靠运行时响应头放宽。
+
+**协议版本怎么处理**：不硬编码。实测 `@modelcontextprotocol/sdk` 已内建版本协商（`SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST`），所以代码里**永远不出现协议版本常量** —— SDK 升级即自动获得 `2026-07-28` 支持。2026 版的破坏性变更（移除 `initialize` 握手与会话）全部落在 SDK 内部，这正是"不手写协议"的价值。
+
+### 发布形态
+
+```
+packages/core          →  @you/figma-core    零宿主依赖，库用户可直接用
+packages/adapter-mcp   →  @you/figma-mcp     npx 一行即用 —— 主分发形态
+packages/adapter-dsh   →  @you/figma-dsh     DSH 原生插件（可选 peerDependency）
+```
+
+配套：`figma_doctor` 自诊断（输出可直接粘进 issue 的**脱敏**报告）、`docs/TOKEN_SETUP.md`（四种令牌投递方式）、issue 模板要求附 doctor 报告。
+
+> ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**，别随代码一起推上去。

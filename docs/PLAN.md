@@ -3,6 +3,8 @@
 > 目标：把 Figma 的设计能力做成 DSH 里**可插拔的一等公民**——模型能用原生工具读懂一个 Figma 文件（结构 / 样式 / 变量 / 组件 / 截图），而不需要人肉截图粘贴。
 >
 > 状态：设计稿 v1（待评审）。文中所有关于 DSH 内部接口的结论，均已在本机部署上实测核对，出处标注在 §10。
+>
+> **目标包含开源**（面向陌生用户分发）——由此产生的设计约束见 §12，它会推翻本方案里若干默认值，其中最重要的一条是：**MCP 适配器是主分发渠道，不是可移植性附加项**。
 
 ---
 
@@ -849,9 +851,9 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 
 **验收**：`dsh-mcp-client` 配置一行指向它，桥接出的 `mcp__figma__*` 与本机工具行为等价。
 
-> ### ⚠️ P2 的协议版本陷阱（已实测，务必先读）
+> ### ⚠️ P2 的 MCP 协议版本问题（已实测，并修正了原对策）
 >
-> **MCP 协议正在分裂成两代，而本机部署的 SDK 只支持旧的那一代。**
+> **MCP 已经有两代协议，而本机部署的 SDK 只支持旧的那一代。**
 >
 > 实测本机 `@modelcontextprotocol/sdk@1.30.0`（`dsh-mcp-client` 的依赖）：
 > ```
@@ -860,19 +862,35 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 > ```
 > 而 MCP 已有 **2026-07-28** 修订版，是一次**破坏性**变更（官方 changelog 原文）：
 >
-> | 2026-07-28 的变化 | 对本项目的影响 |
+> | 2026-07-28 的变化 | 影响 |
 > |---|---|
-> | **移除 `initialize` / `notifications/initialized` 握手**，版本与客户端能力改由每个请求的 `_meta` 携带（`io.modelcontextprotocol/protocolVersion`、`clientCapabilities`） | 我原稿 P2 的"实现 initialize"在新协议下**根本不存在** |
-> | 移除协议级 session 与 `Mcp-Session-Id` 头 | 服务端不再需要会话状态管理 |
-> | 新增 `server/discover`（**MUST** 实现），用于广告支持的协议版本与能力 | 新协议下这是必需的入口方法 |
-> | `tools/list` 等列表结果**必须**带 `ttlMs` / `cacheScope`；工具顺序**应当**确定 | 与我们在 §4.5 的缓存思路同向，但字段是强制的 |
+> | **移除 `initialize` / `notifications/initialized` 握手**，版本与客户端能力改由每请求 `_meta` 携带（`io.modelcontextprotocol/protocolVersion`/`clientCapabilities`） | 原稿 P2 写的"实现 initialize"在新协议下**根本不存在** |
+> | 移除协议级 session 与 `Mcp-Session-Id` 头 | 服务端不再需要会话状态 |
+> | 新增 `server/discover`（**MUST** 实现） | 新协议下的必需入口方法 |
+> | 列表结果**必须**带 `ttlMs`/`cacheScope`；工具顺序**应当**确定 | 与 §4.5 的缓存思路同向，但字段强制 |
 > | 移除 `ping`、`logging/setLevel`；任务改为扩展 `io.modelcontextprotocol/tasks` | — |
 >
-> **结论与对策**：
-> 1. **P2 只实现 `2025-11-25`**（即 `initialize` 握手那一代）。这是当前 `dsh-mcp-client` 唯一能协商成功的版本——写新协议等于自己造一个 DSH 连不上的 server。
-> 2. **不要手写协议**：直接用 `@modelcontextprotocol/sdk`（本机已有 1.30.0）。理由是它同时封装了版本协商与 transport，手写只会在这个正在快速变动的规范上持续还债。
-> 3. **把版本差异关在适配器里**。这正是 §0.1 组件自足性的价值：`core` 完全不知道 MCP 有几个版本，`adapter-mcp` 换成 stateless 实现时，`core` 一行不用改。等 SDK 升到支持 `2026-07-28`、且 `dsh-mcp-client` 跟进后，再新增一个 stateless 适配器（估 0.5 天）。
-> 4. **顺带的好处**：`2026-07-28` 的 `ttlMs`/`cacheScope` 与"服务器应返回确定性顺序的工具列表以提升 LLM prompt cache 命中"这两条，和我方 §1.2/§4.5 的结论完全同向——说明"少而稳定的工具表 + 明确缓存语义"是行业共识，不是我们的偏好。
+> **✅ 修正后的对策：不要硬编码协议版本，交给 SDK 协商。**
+>
+> 原稿写"P2 只实现 `2025-11-25`"——**这是错的，且是多余的**。实测 SDK 源码 `dist/esm/server/index.js:263`：
+> ```js
+> const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+>   ? requestedVersion : LATEST_PROTOCOL_VERSION;
+> ```
+> **SDK 已经内建版本协商**：客户端要哪个版本，SDK 就从它自己的支持列表里挑；挑不到就回落。所以：
+>
+> 1. **代码里永远不出现协议版本常量。** 用 `McpServer` + `StdioServerTransport`，让 SDK 决定。SDK 升级即自动获得 `2026-07-28` 支持（因为 `LATEST_PROTOCOL_VERSION` 是 SDK 自己的常量），**我们一行不用改**。这比"自己写一个版本分支"健壮得多。
+> 2. **未来那次真正的迁移也已经在 SDK 里完成了**：`2026-07-28` 那一列的破坏性变更（去掉握手、会话、ping）**全部落在 SDK 内部**——这正是"不要手写协议"的价值。如果当初手写 `initialize`，这次迁移就是重写。
+> 3. **上面第 1 条 ≠ 什么都不做**。有三件事与版本无关、且现在就该做，因为它们是**两个版本都受益**的语义（属 §5.1 的"能力"而非"协议"层）：
+>    - `tools/list` 结果按**确定性顺序**返回（利于 LLM prompt cache 命中）；
+>    - 在结果里带上 `ttlMs`：老协议会忽略未知字段，新协议下就是合规的 `CacheableResult`——**这是一次实现、两代兼容的写法**；
+>    - 提供一个 `figma_doctor` 诊断能力（见 §12）：用户报问题时，"你的客户端走的是哪个协议版本"是第一个要问的问题。
+> 4. **只有在 SDK 装死不跟进时**，才考虑手工实现 stateless 变体（估 0.5 天），且**只改 `adapter-mcp` 一个文件**——`core` 对 MCP 有几个版本完全无知（§0.1 组件自足性）。
+> 5. **顺带的好处**：`2026-07-28` 的 `ttlMs`/`cacheScope` 与"服务器应返回确定性顺序的工具列表以提升 prompt cache 命中"这两条，和 §1.2/§4.5 的结论**完全同向**——说明"少而稳定的工具表 + 明确缓存语义"是行业共识，不是我们的偏好。
+>
+> ### 但开源之后，P2 的优先级要从 P2 提到 P1.5
+>
+> 原稿把 MCP 适配器定位成"可移植性锦上添花"。**如果这是个开源项目，这个定位是错的**：Claude Code / Cursor / Codex / Windsurf 的用户**没法安装 Cordis 插件**，他们只能通过 MCP 接入。**MCP 才是这个开源项目触达绝大多数用户的唯一方式，是分发主渠道，不是附加项。** 详见 §12。
 
 ### P3 — 画布桥 + 可视化
 
@@ -911,13 +929,15 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 
 | 阶段 | 内容 | 估时 | 状态 |
 |---|---|---|---|
-| P0 | core 骨架 + 3 spec + 3 工具 + 接线 + 测试（**只读**） | 2–3 天 | 待开工 |
+| P0 | core 骨架 + 3 spec + 3 工具 + DSH 接线 + 测试（**只读**） | 2–3 天 | 待开工 |
 | P1 | 设计系统 spec + 能力文档生成 | 1–2 天 | — |
-| P2 | MCP 适配器（按协议 `2025-11-25`） | 0.5–1 天 | — |
-| P3 | Figma 伴生插件 + 桥 + Client 面板 | 3–4 天 | — |
+| **P1.5** | **MCP 适配器**（协议版本交给 SDK 协商）+ `figma_doctor` | 1–1.5 天 | **已提优先级**，见 §12.3：开源后它是主分发渠道 |
+| P2 | 凭据 provider 解耦 + 最弱席位安全默认值 + 四平台文档（§12.1/12.2/12.5） | 1–2 天 | 开源必需 |
+| P3 | Figma 伴生插件 + 桥 + Client 面板（**不进主包**） | 3–4 天 | — |
 | P4 | ~~写操作~~ | — | **不做**（§9.2） |
 
-P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要做，按 §9.2 末尾的方式作为独立一期重新设计（估 +1.5 天）。
+P0 结束就已经是一个**你自己能天天用的东西**；**P1.5 结束才是一个别人能用的东西**（开源目标下这条才是真正的里程碑）。
+P3 是锦上添花，且按 §12.3 不进主包。P4 已确认不做，故不在估算内——将来若要做，按 §9.2 末尾的方式作为独立一期重新设计（估 +1.5 天）。
 
 ---
 
@@ -1030,6 +1050,137 @@ P0 结束就已经是一个**能天天用的东西**；P3 是锦上添花。P4 �
 | 10 | **不从零值推断因果**：任何"字段为空"的结论都必须先用**改变输入**验证 | §1.4(2) 的教训 | 遇到可疑空集时，先构造/索取一个非空样本重测，再下结论；写进 issue 模板 |
 
 > 这张表的实际价值在第 6 条和第 8 条上：它们是最容易被"先跑通再说"牺牲掉的两条，而恰恰是它们决定了插件能不能在长跑的 harness 里共处。
+
+---
+
+---
+
+## 12. 开源化改造：为"别人的环境"重新设计
+
+目标从"在我这台机器上可用"变成"**在陌生人的机器上第一次就能用起来**"。这不是加个 LICENSE 就完事——它**推翻了本方案里的若干默认值**。下面按"影响大小"排序，前四条是真正需要改设计的。
+
+### 12.1 【最重要】凭据来源必须与 DSH 解耦
+
+原稿的 `ctx.credentials.resolve()` 是 DSH 专属的。开源用户没有 DSH，硬依赖它等于把绝大多数人挡在门外。改成**按优先级探测的可插拔 provider**：
+
+```
+1. FIGMA_TOKEN 环境变量                    ← 最通用，CI/容器/Docker 都靠它
+2. $XDG_CONFIG_HOME/figma-mcp/config.json  ← 非 DSH 用户的本地配置（0600）
+   （或 ~/.config/figma-mcp/config.json）
+3. ctx.credentials.resolve('FIGMA_TOKEN')  ← DSH 用户，由 adapter-dsh 注册
+```
+
+**关键纪律：`core` 和 `adapter-mcp` 里不得出现 `ctx`。** DSH 专属凭据只在 `adapter-dsh` 的构造函数里作为**第三个 provider 注入**进去。这样 `adapter-mcp` 完全不知道 DSH 存在。
+
+同理，`spool` 输出目录也不能默认写"session workspace"（那是 DSH 概念），改为：`--output-dir` / `FIGMA_MCP_OUTPUT_DIR` / 平台缓存目录（`env-paths` 或手写 `~/Library/Caches` / `~/.cache`）。
+
+### 12.2 【最重要】安全默认值必须为"最弱席位"而设
+
+原稿按你确认的 **Full/Dev** 席位调参（Tier 1 = 10–20/min）。**开源用户里占比很高的是 View / Collab 席位——Tier 1 只有 20 次/月**，而我们**无法在调用前知道**对方是哪种。
+
+所以：
+
+- 默认更保守：Tier 1 `5/min`、burst `1`（宁可慢，不要一上来就撞 429 或撞月度上限）；
+- **不得**把"Full/Dev"写进任何默认值或文档主路径；
+- 首次 429 时读 `X-Figma-Rate-Limit-Type`，**在进程内记住**并据此放宽/收紧（§4.4 已设计，开源场景下从"优化"升级为"必需"）；
+- **月度上限要专门给出可理解的错误**：View 席位用户撞到 20 次/月时，必须明确说"这是 Figma 套餐限制，不是本工具的 bug，也不是限流重试能解决的"，并附 `X-Figma-Upgrade-Link`。**这类 issue 会占开源项目求助量的很大比例，值得单独做。**
+
+### 12.3 分发形态：MCP 是主渠道，原生插件是 DSH 特供
+
+原稿把"DSH 原生插件"当主线、"MCP server"当可移植性附加项。**开源之后要倒过来**：
+
+| 用户 | 能装什么 | 渠道价值 |
+|---|---|---|
+| Claude Code / Cursor / Codex / Windsurf | **只能** MCP | **绝大多数用户** |
+| DSH | MCP（经 `dsh-mcp-client`）**或**原生 Cordis 插件 | 小众但体验最好（省 `mcp__` 前缀、直接读凭据） |
+| 自建 agent / 脚本 | 直接调 `core` 的 API | 库用户 |
+
+**结论：P2（MCP 适配器）从"锦上添花"提升为 `P1.5`——它决定这个项目能不能被别人用上。** P0/P1 的工作不变（那些是 `core`），只是把 MCP 适配器排到原生适配器同等甚至更早的位置。
+
+**发布三个包**（版本独立演进）：
+
+```
+packages/core          →  @you/figma-core      零宿主依赖，可单独使用（库用户）
+packages/adapter-mcp   →  @you/figma-mcp       npx 一行即用；主分发形态
+packages/adapter-dsh   →  @you/figma-dsh       DSH 原生插件（可选 peerDependency）
+```
+
+`@you/figma-dsh` 的 `dsh` 做成**可选 peerDependency**，非 DSH 用户装 `core`/`mcp` 时不会被拖入 DSH 依赖。
+
+**但 P3（画布桥 + Client Slot 面板）不要开源进主包**：它依赖 DSH 的 Client 插件机制，对其他宿主用户是纯噪音。要么留在 `adapter-dsh` 里，要么单开 `@you/figma-dsh-canvas`。
+
+### 12.4 `figma_doctor` 诊断能力（开源项目的高杠杆投入）
+
+陌生人第一次用会带着**各种**令牌状态来：scope 不全、席位不对、令牌过期、走代理、企业版缺权限。与其在 issue 里反复问，不如给一个自诊断工具：
+
+```
+figma_doctor()
+  → 凭据来源（环境变量 / 配置文件 / DSH 凭据服务，只报来源不报值）
+  → 令牌有效性（401 探测）
+  → 该令牌实际持有的 scope 列表（从 403 响应体解析，§5.4 已实测可行）
+  → 席位类型 / 限流档位（首次 429 后可得；否则报"未知"）
+  → 一次端到端烟测：/meta 取一个公开示例文件
+  → 代理是否生效（dsh-http-proxy 或 HTTPS_PROXY）
+  → 输出一段可直接粘进 issue 的脱敏报告
+```
+
+**这一段"可直接粘进 issue 的脱敏报告"是重点**——它同时解决了用户不会描述问题、和你不愿让用户贴 token 两个难题。
+
+### 12.5 令牌投递方式的文档要覆盖所有人群
+
+原稿只写了 DSH 的 `.credentials.yaml`。开源必须给出四条路径（并明确只读 scope 清单）：
+
+```bash
+# 1. 环境变量（最通用）
+export FIGMA_TOKEN=figd_xxx
+
+# 2. 配置文件（0600）
+mkdir -p ~/.config/figma-mcp && printf '{"token":"figd_xxx"}' > ~/.config/figma-mcp/config.json
+
+# 3. Claude Code / Cursor 的 MCP 配置里用 env 传
+# 4. DSH：~/.dsh/.credentials.yaml 的 refs.FIGMA_TOKEN
+```
+
+**必须写进 README 的三条预期管理**（能砍掉大量 issue）：
+
+1. 本工具**只读**，永远不会改你的设计文件；
+2. **PAT 最长 90 天且不可刷新**，到期需重新生成（或改用 Org/Enterprise 的计划访问令牌，1 年 + 可刷新）；
+3. **View/Collab 席位下 Tier 1 只有 20 次/月**；Full/Dev 席位是 10–20 次/分。这是 Figma 的套餐限制。
+
+### 12.6 可移植性细节
+
+- **Node 版本**：声明 `engines` 并给出版本要求（建议 `>=20`，因为用的是内建 `fetch`）；
+- **不依赖 DSH 的 `fetch` 代理注入**：`core` 用标准 `fetch`，代理靠环境变量（`undici` 会自动读 `HTTPS_PROXY` 吗？**需实测**，否则显式接 `ProxyAgent`）；
+- **平台**：macOS / Linux / Windows 都要能跑（避免写死路径分隔符；用 `node:path`）；
+- **零 native 依赖**，保证 `npx` 即用；
+- **区域可达性**：Figma API 在某些网络环境下不可达。首次失败时要给出**可区分**的错误（DNS / TLS / 超时 / 代理），而不是笼统的 "fetch failed"。
+
+### 12.7 issue 模板 + 文档先行
+
+在写代码前先落两个文件，它们会显著影响实现的边界：
+
+- `docs/TOKEN_SETUP.md`：四种投递方式 + 只读 scope 清单 + 席位影响 + 常见 403 对照表；
+- `.github/ISSUE_TEMPLATE/bug.yml`：**必填 `figma_doctor` 报告**。这一条能把"帮我看看为什么不行"变成"贴报告"，省掉大量来回。
+
+### 12.8 仓库与合规
+
+- **LICENSE**：建议 **MIT**（与 DSH / Cordis 生态一致，`vendor/cordis` 亦为 MIT；对工具类项目门槛最低）。若更在意专利授权条款，用 Apache-2.0。
+- **命名**：不要用 `figma-mcp` 这类可能撞商标的名字做主包名。建议 `figma-context-mcp` / `figma-rest-mcp`，并在 README 明确"非 Figma 官方项目，未获 Figma 背书"。
+- **`SECURITY.md`**：本工具处理 PAT，需说明"令牌不落日志/不进错误体/不跟随重定向"（§5.5 已设计），并给出私密报告渠道。
+- **不要发布录制 fixtures**：§1.3/§1.4 的实测数据里含**你的**真实 fileKey、节点 id、文件名（`Design File A`、`Design File B`）以及你的 Figma handle。开源前必须：(a) 用脚本脱敏；(b) 或只保留合成 fixture；(c) 或录制成最小匿名样本。**这一步别忘，很容易随代码一起推上去。**
+- **CI**：`node --test` + 类型检查 + **§11 的纪律门禁**（只读断言、`core` 无 DSH import、卸载无残留）。
+- **CONTRIBUTING.md**：明确"能力扩展 = 加一条 spec 数据"（§4.2），这是这个架构对贡献者最友好的地方，要在文档里讲清楚，否则没人知道怎么加能力。
+
+### 12.9 对已定决策的复核
+
+开源这个目标**不改变**已确认的三条决策，但改变了它们的措辞：
+
+| 决策 | 是否变化 | 说明 |
+|---|---|---|
+| 席位 Full/Dev | ⚠️ **默认值变了** | 你的机器是 Full/Dev，但**默认参数按最弱席位设**，靠运行时探测放宽（§12.2） |
+| 只读，不做写操作 | ✅ 不变，**且更有利** | 只读是开源工具能被信任的前提；也让"不支持写 scope"成为卖点而非缺陷 |
+| 能力表驱动、对模型只暴露 3 个工具 | ✅ 不变 | 对陌生用户更重要：**上下文开销可控**是跨宿主的共同需求 |
+| DSH 原生插件为主线 | ❌ **反转为 MCP 为主线** | §12.3，这是开源目标带来的最大结构性改变 |
 
 ---
 
