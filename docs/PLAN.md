@@ -6,7 +6,7 @@
 >
 > **项目将开源，但范围是 DeepSeek Harness 插件**（受众 = 其他 DSH 用户）。由此产生的约束见 §12：主要是**默认值要面向更弱的 Figma 席位**，以及配置/排障的易用性——**不含多宿主分发**。
 >
-> **交付形态已确认 A+B**：A = DSH 原生 Cordis 插件（**主线，P0 交付**）；B = MCP 适配器（可选 P2）。B 是否保留在路线图中是当前唯一未决项，见 §12.3.1。
+> **交付形态已确认：仅 A**（DSH 原生 Cordis 插件，P0 交付）。MCP 适配器（B）当前不做，但保留了「可随时补回」的 CI 可检查不变量（§12.3.1）。**分发：只发 GitHub，不发 npm**（§12.9.1）。
 
 ---
 
@@ -391,7 +391,7 @@ Figma-MCP-dsh/
     │       ├── tools.ts          # 3 个工具的定义
     │       ├── bridge-server.ts  # 插件桥 WebSocket 服务端
     │       └── events.ts         # figma/* 事件（审计与可观测）
-    ├── adapter-mcp/              # (P2) 独立 MCP server 入口
+    ├── adapter-mcp/              # ❌ 当前不做（§12.3.1）——分层纪律为它留了门，但目录不建
     │   └── src/server.ts         # initialize / tools/list / tools/call
     └── figma-plugin/             # (P3) 伴生 Figma 插件
         ├── manifest.json         # networkAccess 白名单
@@ -846,12 +846,15 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 - **现在可验收**：对 `Zz9Yy8Xx7Ww6Vv5Uu4Tt3S` 报出组件清单——`7:8` `Dark - Dashboard - 10`、`9:10` `Light - Dashboard - 10`，含各自 `key`；并断言**没有** `componentSetId` / 变体属性的字段假设（§1.4(2b) 的实测字段全集）；
 - **需要补素材才能验收**：组件实例引用（`INSTANCE.componentId`）、组件集与变体、样式引用（`styleId`）。素材条件：在画板里**使用**已声明的组件、建一个 Component Set（变体）、定义一个 Style。`variables` 另需 `file_variables:read` scope（当前 403）。
 
-### P2 — MCP 适配器（可选入口，非主渠道）
+### P2 — ~~MCP 适配器~~（当前不做，见 §12.3.1）
 
-- `adapter-mcp`：`initialize` / `notifications/initialized` / `tools/list` / `tools/call`，stdio 优先
-- 验证：把同一个包挂进别的 MCP 宿主，工具行为一致
+**当前不做**（用户 2026-09 决定）。下面保留的是"如果将来要做，需要注意什么"，不是待办：
 
-**验收**：`dsh-mcp-client` 配置一行指向它，桥接出的 `mcp__figma__*` 与本机工具行为等价。
+- `adapter-mcp`：约 60–100 行，用 `@modelcontextprotocol/sdk`（本机已有 1.30.0），stdio 优先
+- 前提是 §12.3.1 的三条不变量没被破坏（`core` 无 DSH import、无 `ctx`、接口宿主中立）
+- 补做时的验收：`dsh-mcp-client` 配置一行指向它，桥接出的 `mcp__figma__*` 与本机工具行为等价
+
+> 下面那段协议版本分析**依然值得读**——它解释了为什么无论何时补 B，都**不要硬编码协议版本**。
 
 > ### ⚠️ P2 的 MCP 协议版本问题（已实测，并修正了原对策）
 >
@@ -940,8 +943,8 @@ DSH 确实有这个能力：`ctx.userQuestions.ask({ questions: [...] })` 会走
 |---|---|---|---|
 | P0 | core 骨架 + 3 spec + 3 工具 + DSH 接线 + 测试（**只读**） | 2–3 天 | 待开工 |
 | P1 | 设计系统 spec + 能力文档生成 | 1–2 天 | — |
-| P1.5 | 开源就绪项：`figma_doctor` + 更弱席位的安全默认值 + README/issue 模板 + CI 门禁 + **脱敏**（§12.2/12.4/12.10） | 1–1.5 天 | 开源必需 |
-| P2 | MCP 适配器（可选入口；协议版本交给 SDK 协商） | 0.5–1 天 | 非必需 |
+| P1.5 | 开源就绪项：`figma_doctor` + 更弱席位的安全默认值 + README/issue 模板 + CI 门禁 + **脱敏** + GitHub 装配路径打通（§12.2/12.4/12.9.1/12.10） | 1.5–2 天 | 开源必需 |
+| P2 | ~~MCP 适配器~~ | — | **不做**（§12.3.1），门留着 |
 | P3 | Figma 伴生插件 + 桥 + Client 面板 | 3–4 天 | — |
 | P4 | ~~写操作~~ | — | **不做**（§9.2） |
 
@@ -959,14 +962,12 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 - Tier 1（file / nodes / images）额度 **10–20/min**，Tier 2 为 25–100/min，Tier 3 为 50–150/min —— 方案可用，**但必须按"预算制"调度**：令牌桶（默认保守取 10/min）+ 请求合并 + 缓存，`burst` 给小。
 - 仍然存在的坑：**限流是「席位 × 端点档位 × 资源所在套餐」三者乘积**。PAT 指向 Starter 套餐里的文件时，即使是 Full 席位也只有 6 次/月级别。所以桶上限不能写死，要读 `X-Figma-Rate-Limit-Type` 动态调整（§4.4）。
 
-### 9.1.1 交付形态：**A + B** ✅ 已确认
+### 9.1.1 交付形态：**A only**（B 当前不做，但门留着）✅ 已确认
 
-- **A = DSH 原生 Cordis 插件** —— 主线，**P0 即交付**。工具名干净、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live`。
-- **B = MCP 适配器** —— 可选，P2。给想用 `dsh-mcp-client` 入口的 DSH 用户，也让你能脱离 DSH 单独调试/做基准。
+- **A = DSH 原生 Cordis 插件** —— **P0 交付，也是当前唯一的交付形态**。工具名干净、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live`。
+- **B = MCP 适配器** —— **当前不做，且不保留在路线图里。** 但「以后可以补回来」是被 CI 守住的架构不变量，不是口头承诺，见 §12.3.1。
 
-前提是 §4.1 的分层纪律：**`core` 不含任何 DSH 依赖且不含 `ctx`**，两个适配器都只是把它绑定到各自的上下文上。这条纪律使 A+B 成为零成本抽象——不是两套实现，而是一份核心加两个薄壳。
-
-**唯一未决项**：B 是否保留在路线图里。成本与代价见 §12.3.1。
+**成立前提（§4.1 的分层纪律）**：`core` 不含任何 DSH 依赖、不含 `ctx`，公开接口保持宿主中立。这条纪律**不是为了 B 才加的** —— 它是 §0.1 组件自足性的直接推论，同时买到三样东西：可独立测试、抗 DSH 版本漂移、以及**将来补 B 时不用重构**。
 
 ### 9.2 写操作：**不做**（已确认，只读）✅
 
@@ -1144,26 +1145,19 @@ interface TokenSource { resolve(): Promise<string | undefined> }
 
 > **上一版把这条判断写反了，已订正。** 根本原因是我默认了"开源 = 面向所有 agent 宿主"，而实际范围是"面向 DSH 用户"。
 
-### 12.3.1 【待你决定】MCP 适配器到底留不留
+### 12.3.1 MCP 适配器（B）：**当前不做**，但保留"可随时补回"的硬保证 ✅ 已决定
 
-**A+B 架构已确认**：核心协议无关，**A（DSH 原生 Cordis 插件）是主线与 P0 交付**，**B（MCP 适配器）为可选 P2**。但 B **要不要保留在路线图里**，需要你拍一下。这是本项目当前唯一的未决项。
+**决定（用户 2026-09）：B 不保留在路线图里。** 但用户同时问了"如果后面有需要，B 可以再补充吗"——**可以，而且这不是承诺，是可强制检查的架构不变量**：
 
-**先明确 B 的成本与代价**（都不大，但有两处真实代价）：
+- B 的全部工作量 ≈ **60–100 行**，前提是 `core` 协议无关。所以只要下面三条不变量被 CI 守住，补回 B **不需要重构**：
+  1. **`core` 不 import 任何 `@deepseek-ai/*`**（CI：`packages/core/package.json` 无 DSH 依赖 + grep 门禁）；
+  2. **`core` 里不出现 `ctx`**（CI：grep 门禁）；
+  3. **`core` 的公开接口是宿主中立的**——例如 `TokenSource`（§12.1）而不是直接暴露 `ctx.credentials`（CI：类型检查 + review 检查点）。
+- 这三条同时也是 §11 纪律清单里已有的条目（第 5 条等），**所以"B 可补回"这件事不额外花钱**，它本就是分层纪律的副产品。
 
-| | 说明 |
-|---|---|
-| 新增代码量 | 约 **60–100 行**（`core` 已经完全复用，只做 `tools/list` 与 `tools/call` 的翻译） |
-| 新增依赖 | `@modelcontextprotocol/sdk`（DSH 部署里已有 1.30.0，可直接复用，不必新引入） |
-| **代价一：拿不到凭据服务** | MCP 是独立进程，**无法访问 `ctx.credentials`**。令牌只能走环境变量 `FIGMA_TOKEN` 传入 → 用户要多维护一处、轮换时要同时改两处（§12.1 的 `EnvTokenSource` 就是为这个场景准备的） |
-| **代价二：配置面变宽** | 装配从"改一处 `cordis.patch.yml`"变成"再配一段 `dsh-mcp-client` 的 `transport/command/env`"；README 要写两套装配说明，issue 里要分辨用户走的是哪条路 |
-| 被否决的变体 | ❌ **不为 B 单独发一个 npm 包** —— 你想挂到别的宿主时，只要有 `core`，自己包一层 MCP 是几十行的事；为假想需求维护第二个包不划算（也避免形成"这是通用 MCP server"的错误预期） |
+**代价（做决定时已确认接受）**：不保留 B 意味着**当前没有任何非 DSH 入口**，也无法脱离 DSH 单独调试/做基准。将来若要补，按 60–100 行 + 复用仓内已有的 `@modelcontextprotocol/sdk` 估。
 
-**两个选项**：
-
-- **保留（推荐）**：成本低、给你第二个入口、且**让我能脱离 DSH 单独调试与做基准测试**（这条对开发本身有用）。README 里明确写成"可选：如果你更想用 MCP 入口"。
-- **删掉**：方案更简洁，少一套装配文档与一类 issue。代价是**以后想挂到非 DSH 宿主时必须重新做**（虽然也不贵）。
-
-> 我的建议：**保留，但排在最后（P2）**，且明确标注"非必需"。如果你希望方案尽可能精简，删掉也完全合理——`core` 协议无关这一点**无论选哪个都不会白做**。
+> 一句话：**B 现在不做，但门留着，且门是 CI 守的，不是靠记性。**
 
 ### 12.4 `figma_doctor` 诊断能力（开源项目的高杠杆投入）
 
@@ -1239,10 +1233,47 @@ export FIGMA_TOKEN=figd_xxx
 | MCP 适配器 | 🔸 **降为可选 P2** | 面向"想用 MCP 入口的 DSH 用户"，非多宿主分发 |
 | 包结构 | ✅ **单包 + 分层**（撤回"发三个包"） | DSH 专属适配器没有第二个消费者 |
 
+### 12.9.1 分发路径：**只发 GitHub**（已决定）
+
+用户决定**不发布到 npm**，只通过 GitHub 分发。这带来几条具体的装配约束：
+
+**(1) 用户的安装方式**（写进 README 与 `docs/WIRING.md`）：
+
+```bash
+# 在 DSH profile 目录里装（本地路径，把 <path> 换成 clone 的位置）
+cd ~/.dsh/profiles/web
+pnpm add link:/path/to/Figma-MCP-dsh
+
+# 或直接从 GitHub 装（无需 clone）
+pnpm add github:<user>/Figma-MCP-dsh
+```
+
+> ⚠️ 上面两个 `pnpm` 形式是**官方文档化语法**，但**本次实测未能确认**——本机跑 `pnpm add github:…` 时网络挂起（3 分钟超时），所以"git 安装能否成功、是否需要在 profile 里额外配置"**属于待验证项**。P0 装配时第一件事就是把它跑通；跑不通则退回"用户 clone 后 `link:`"这一条路径，并在 README 里只写这一种。
+
+**(2) 硬约束：git 安装不会执行构建，所以必须提交编译产物。**
+
+`pnpm add github:<user>/<repo>` 拉的是仓库内容，**不会跑 `prepare`/`build`**。因此：
+
+- **`lib/`（编译后的 ESM JS）必须提交进仓库**，`package.json` 的 `main` 指向它——与同 profile 里 `dsh-pale-green-tint` 的做法一致（它就是 `lib/index.js` + 提交的 `lib/client.js`）；
+- `.gitignore` 里**不要**忽略 `lib/`（当前 `.gitignore` 已经忽略了 `lib/`，**必须改**，否则用户装上的是空包）；
+- 源码用 `src/`，构建脚本 `pnpm build` 产出 `lib/`；**提交前跑一次构建**，CI 里加一条"`lib/` 与 `src/` 是否同步"的检查。
+
+**(3) 包名仍要是一个合法的 npm 名**（即使不发 npm）：`dsh-figma` 或 `@<你的scope>/dsh-figma`。原因：`pnpm add <spec>` 与 profile 的 `package.json` 都会用到它，非法名会直接报错。**同时避开 Figma 商标**（§12.8）。
+
+**(4) 结果：装配说明只有一条主路径**（比发 npm 简单，但也比 npm 多一步"用户得先拿到代码"）。README 里必须写清：
+
+```
+1. 拿到代码（git clone，或 pnpm add github:…）
+2. 在 ~/.dsh/.credentials.yaml 的 refs 下加 FIGMA_TOKEN
+3. 在 ~/.dsh/profiles/web/cordis.patch.yml 里 insert 一行
+4. 重启/热重载，然后用 figma_doctor 自检
+```
+
 ### 12.10 开源清单（可直接当 checklist）
 
 - [ ] `LICENSE`（建议 MIT，与 DSH / Cordis 生态一致；`vendor/cordis` 亦为 MIT）
-- [ ] 包名避开 Figma 商标（不要 `figma-mcp` 之类做主名），README 标注"非 Figma 官方项目"
+- [ ] 包名避开 Figma 商标（不要 `figma-mcp` 之类做主名），README 标注"非 Figma 官方项目"；**不发 npm，仅 GitHub 分发**（§12.9.1）
+- [ ] ⚠️ **`lib/` 编译产物提交进仓库**，且 `.gitignore` **不再忽略 `lib/`** —— 否则 git 安装得到空包（§12.9.1）
 - [ ] `SECURITY.md`：说明令牌不落日志/不进错误体/不跟随重定向（§5.5），给出私密报告渠道
 - [ ] `README.md`：三条预期管理（§12.5）+ 只读 scope 清单 + 装配步骤
 - [ ] `docs/TOKEN_SETUP.md`：DSH 凭据为主路径

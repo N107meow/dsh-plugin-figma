@@ -3,7 +3,12 @@ node_modules/
 .pnpm-store/
 
 # build output
-lib/
+#
+# ⚠️ lib/ is deliberately NOT ignored.
+# This project is distributed via GitHub only (docs/PLAN.md §12.9.1), and
+# `pnpm add github:<user>/<repo>` does NOT run a build step. So the compiled
+# ESM output must be committed, or users install an empty package.
+# `dist/` stays ignored — it is not the published entry point.
 dist/
 *.tsbuildinfo
 
