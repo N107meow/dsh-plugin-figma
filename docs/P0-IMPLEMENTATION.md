@@ -7,6 +7,8 @@
 >
 > 状态：P0 范围已冻结（`PLAN.md` §9.1.3）。包骨架、入口、装配验证脚本、命名已就位。
 > 交付形态：**仅 DSH 原生 Cordis 插件（A）**。MCP 适配器**不做**。
+>
+> **脱敏说明**：本文中的 fileKey、节点 id 与文件名均写作**合成标识符**。实测结论来自真实的私有设计文件，其真实标识符不随本仓库发布；合成 fileKey 仍是 22 位 `[A-Za-z0-9]`，所有实测数字（体积、压缩率、配色、字体层级）未被改动。
 
 ---
 
@@ -663,11 +665,17 @@ export const hasLiveFixtures = Boolean(REAL_FILE_KEY && REAL_NODE_ID)
 
 ### 7.5 真实数据手工验证（P0 收尾）
 
+真实 fileKey 与节点 id 不随仓库发布，用你自己的私有文件跑：
+
 ```
-FIGMA_TEST_FILE_KEY=Aa1Bb2Cc3Dd4Ee5Ff6Gg7H FIGMA_TEST_NODE_ID=11:12 node --test test/
+FIGMA_TEST_FILE_KEY=<你的私有 fileKey> \
+FIGMA_TEST_NODE_ID=<该文件里的一个画板节点 id> \
+FIGMA_TEST_NODE_ID_B=<明暗主题对里的另一个节点 id，可选> \
+FIGMA_TEST_RATE_LIMIT=1 \
+node --test test/
 ```
 
-**注意**：这两个值是本人的真实文件，仅用于本机验证，**不要提交**。
+**注意**：真实数据只用于本机手工验证，**不要提交**；仓库里的 fixture 一律是合成值，`test/fixtures/recorded/` 已在 `.gitignore` 里。
 
 ---
 

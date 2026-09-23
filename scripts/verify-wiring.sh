@@ -6,13 +6,25 @@
 # Checks, in order:
 #   1. the package resolves as a bare specifier from the profile's node_modules
 #   2. the cordis.patch.yml row reaches the composed config
-#   3. DSH actually loads and activates the plugin
-#   4. the disposer runs on shutdown
+#   3. DSH loads the plugin, applies it, and its tools are in the registry
+#   4. no load or activation error appears in the log
 #
 # Usage: scripts/verify-wiring.sh
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Prefer the dsh already installed on this machine over `npx @deepseek-ai/dsh`.
+# npx resolves the `latest` tag, which means every run of this script can
+# silently swap the deployment's packages underneath a running server — the
+# exact version drift the install step warns about. Fall back to npx only when
+# no installed dsh is on PATH.
+if command -v dsh >/dev/null 2>&1; then
+  DSH="$(command -v dsh)"
+else
+  echo "note: no installed 'dsh' on PATH; falling back to npx (this resolves 'latest')" >&2
+  DSH="npx --yes @deepseek-ai/dsh"
+fi
 PROFILE_NAME="wiring-verify"
 PROFILE="$HOME/.dsh/profiles/$PROFILE_NAME"
 PKG_NAME="$(node -p "require('$REPO/package.json').name")"
@@ -26,6 +38,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "repo     : $REPO"
+echo "dsh      : $DSH"
 echo "package  : $PKG_NAME"
 echo "profile  : $PROFILE (temporary, removed on exit)"
 echo
@@ -60,24 +73,36 @@ echo "==> 1/4 bare-specifier resolution from the profile"
 " )
 
 echo "==> 2/4 row reaches the composed config"
-( cd "$PROFILE" && npx --yes @deepseek-ai/dsh --profile "$PROFILE_NAME" --dump-config 2>/dev/null \
+( cd "$PROFILE" && $DSH --profile "$PROFILE_NAME" --dump-config 2>/dev/null \
   | grep -A2 -- "- id: figma" | sed 's/^/    /' )
-if ! ( cd "$PROFILE" && npx --yes @deepseek-ai/dsh --profile "$PROFILE_NAME" --dump-config 2>/dev/null | grep -q "$PKG_NAME" ); then
+if ! ( cd "$PROFILE" && $DSH --profile "$PROFILE_NAME" --dump-config 2>/dev/null | grep -q "$PKG_NAME" ); then
   echo "    FAIL: '$PKG_NAME' not present in composed config"; exit 1
 fi
 echo "    OK  '$PKG_NAME' present"
 
-echo "==> 3/4 + 4/4 load, activate, and dispose"
-( cd "$PROFILE" && npx --yes @deepseek-ai/dsh --profile "$PROFILE_NAME" > "$LOG" 2>&1 ) &
+echo "==> 3/4 + 4/4 load, activate, and register tools"
+( cd "$PROFILE" && $DSH --profile "$PROFILE_NAME" > "$LOG" 2>&1 ) &
 BOOT=$!
 sleep 14
 kill "$BOOT" 2>/dev/null || true
 wait "$BOOT" 2>/dev/null || true
 
-if grep -q "placeholder loaded" "$LOG"; then echo "    OK  plugin loaded and applied"; else
-  echo "    FAIL: no load marker"; sed 's/^/    | /' "$LOG" | tail -20; exit 1; fi
+# The activation line lists the names the registry confirmed, so a match is
+# evidence that both tools really landed in the registry.
+if grep -q "\[dsh-plugin-figma\] active — registered figma_capabilities, figma_call" "$LOG"; then
+  echo "    OK  plugin loaded, applied, and both tools are registered"
+else
+  echo "    FAIL: no activation marker showing both tools"
+  sed 's/^/    | /' "$LOG" | tail -30
+  exit 1
+fi
 if grep -qi "cannot find\|ERR_MODULE\|failed to load" "$LOG"; then
   echo "    FAIL: load error"; grep -i "cannot find\|ERR_MODULE\|failed to load" "$LOG" | sed 's/^/    | /'; exit 1
+fi
+if grep -qi "dsh-plugin-figma.*\(error\|failed\)" "$LOG"; then
+  echo "    FAIL: the plugin reported an error while activating"
+  grep -i "dsh-plugin-figma" "$LOG" | sed 's/^/    | /'
+  exit 1
 fi
 echo "    OK  no load errors"
 

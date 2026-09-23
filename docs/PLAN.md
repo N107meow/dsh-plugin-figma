@@ -7,6 +7,8 @@
 > **项目将开源，但范围是 DeepSeek Harness 插件**（受众 = 其他 DSH 用户）。由此产生的约束见 §12：主要是**默认值要面向更弱的 Figma 席位**，以及配置/排障的易用性——**不含多宿主分发**。
 >
 > **交付形态已确认：仅 A**（DSH 原生 Cordis 插件，P0 交付）。MCP 适配器（B）当前不做，但保留了「可随时补回」的 CI 可检查不变量（§12.3.1）。**分发：npm + GitHub 双通道**（§12.9.1）。包名 `dsh-plugin-figma`（§9.1.2）。
+>
+> **脱敏说明**：本文中的 fileKey、节点 id 与文件名均写作**合成标识符**（如 fileKey `Aa1Bb2Cc3Dd4Ee5Ff6Gg7H`、文件名 `Design File A` / `Design File B`）。全部实测结论来自真实的私有设计文件，其真实标识符不随本仓库发布。合成 fileKey 仍是 22 位 `[A-Za-z0-9]`，所以文中关于长度、URL 形态与 `depth` 体积的陈述依然成立。
 
 ---
 
@@ -110,7 +112,7 @@ Figma 插件 manifest 的 `networkAccess.allowedDomains` 是**域名白名单**�
 
 同时，插件的 `main` 代码运行在 Figma 的受限沙箱中（无 socket / 无任意 fetch），只有 `ui` 声明的 iframe 具备网络能力，两者通过 `postMessage` 通信。这条决定了「Plugin API 桥」的拓扑（见 §5.3）。
 
-### 1.3 已实测的 Figma API 行为（用你的 PAT 打真实文件 `Design File A`）
+### 1.3 已实测的 Figma API 行为（用你的 PAT 打一个私有设计文件）
 
 P0 的第一件事做完了。下面是实测数据，其中**三条直接修正了原设计**：
 
@@ -165,7 +167,7 @@ P0 的第一件事做完了。下面是实测数据，其中**三条直接修正
 
 - **配色**（`color` 是 0–1 浮点 RGBA，投影时归一为 hex）：`#111827`（近黑正文）、`#9CA3AF`（次要灰）、`#C4CCC8`（浅边框灰）、`#F5F5F7`（卡片底）、`#FFFFFF`
 - **字体层级**：`Inter 400 10.5px` / `Inter 400 12.5px` / `Inter 600 13.0px` / `Inter 700 18.0px` —— 4 级，干净
-- **文案**（含中文与换行）：`欢迎使用 Design File A`、`开始之前，建议先完成基础配置…`
+- **文案**（含中文与换行）：`欢迎使用示例应用`、`开始之前，建议先完成基础配置…`
 
 **所以 §4.5(a) 的投影策略不是纸上设计，是已验证可行的**；`depth=4` 这种深度的单个画板产出约 1,600 tokens，8 个画板全读约 1.3 万 tokens——在预算内。
 
@@ -1268,7 +1270,7 @@ export FIGMA_TOKEN=figd_xxx
 - **LICENSE**：建议 **MIT**（与 DSH / Cordis 生态一致，`vendor/cordis` 亦为 MIT；对工具类项目门槛最低）。若更在意专利授权条款，用 Apache-2.0。
 - **命名**：✅ 已定 **`dsh-plugin-figma`**（§9.1.2）——描述性命名，不宣称官方归属；README 明确"非 Figma 官方项目，未获 Figma 背书"。
 - **`SECURITY.md`**：本工具处理 PAT，需说明"令牌不落日志/不进错误体/不跟随重定向"（§5.5 已设计），并给出私密报告渠道。
-- **不要发布录制 fixtures**：§1.3/§1.4 的实测数据里含**你的**真实 fileKey、节点 id、文件名（`Design File A`、`Design File B`）以及你的 Figma handle。开源前必须：(a) 用脚本脱敏；(b) 或只保留合成 fixture；(c) 或录制成最小匿名样本。**这一步别忘，很容易随代码一起推上去。**
+- ✅ **不要发布录制 fixtures**：§1.3/§1.4 的实测数据原本含真实 fileKey、节点 id、文件名与 Figma handle。**已脱敏**：两份文档里的标识符全部换成了合成值（见文首说明），`test/` 只用合成 fixture，`fixtures/recorded/` 仍在 `.gitignore` 里，并由 `scripts/check-secrets.mjs` 在 CI 中拦住再次泄漏。**新增实测数据时同样不要提交真实 fixture。**
 - **CI**：`node --test` + 类型检查 + **§11 的纪律门禁**（只读断言、`core` 无 DSH import、卸载无残留）。
 - **CONTRIBUTING.md**：明确"能力扩展 = 加一条 spec 数据"（§4.2），这是这个架构对贡献者最友好的地方，要在文档里讲清楚，否则没人知道怎么加能力。
 
@@ -1375,7 +1377,11 @@ dsh-plugin-figma/               # 仓库根 = 包根，name: "dsh-plugin-figma"
 - [ ] `LICENSE`（建议 MIT，与 DSH / Cordis 生态一致；`vendor/cordis` 亦为 MIT）
 - [ ] 包名 `dsh-plugin-figma`，README 标注"非 Figma 官方项目，未获 Figma 背书"
 - [ ] npm 发布就绪：**`private` 必须为 false/不存在**、`license`/`repository`/`keywords`/`files`（只含 `lib/`）、`prepublishOnly` 跑测试、考虑 `--provenance`（§12.9.1）
-- [ ] ⚠️ **把 `package.json` 与 README 里的 `<user>` 占位符换成你的真实 GitHub 用户名** —— npm 不会校验 `repository.url`，所以占位符会安静地发布成一个坏链接。建议加一条发布前检查：`! grep -rq '<user>' package.json README.md`
+- [ ] ⚠️ **把 `package.json` 里的 `<user>` 占位符换成你的真实 GitHub 用户名** —— npm 不会校验 `repository.url`，所以占位符会安静地发布成一个坏链接（`repository.url` / `bugs.url` / `homepage` 三处）。发布前检查收窄到只查 `package.json`：
+
+      ! grep -q '<user>' package.json
+
+  **`README.md` 与 `docs/` 里的 `github:<user>/…` 是给读者的占位语法，故意保留**，不要一起替换——把它们算进检查会让这条永远无法通过。
 - [ ] 跑一次 `bash scripts/verify-wiring.sh`，确认装配四项检查全绿（已内置）
 - [ ] **改名守卫**：`package.json` 的 `name` 是唯一权威；改名时用 `grep -rn '<旧名>' . --exclude-dir=.git` 收尾，**必须为 0 命中**。本次在 `dsh-plugin-figma` 与 `dsh-figma-plugin` 之间来回改名时，`repository.url` 之外的 `bugs` / `homepage` 两个 URL 就漏改过（一致性自查抓到的）。**另一个真实教训：全局替换脚本会连「历史存档」一起改掉**（本次就把它改成过自相矛盾的文本），所以文档里的旧名存档必须**显式豁免**于替换之外。
 - [ ] 发布前先看 `github.com/dushaobindoudou/dsh-figma` —— 同类项目（占用了 `dsh-figma` 名字），判断是协作还是并行（§9.1.2）

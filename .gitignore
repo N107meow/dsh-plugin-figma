@@ -5,12 +5,19 @@ node_modules/
 # build output
 #
 # ⚠️ lib/ is deliberately NOT ignored.
-# This project is distributed via GitHub only (docs/PLAN.md §12.9.1), and
-# `pnpm add github:<user>/<repo>` does NOT run a build step. So the compiled
-# ESM output must be committed, or users install an empty package.
-# `dist/` stays ignored — it is not the published entry point.
+# The package is distributed as source (docs/PLAN.md §12.9.1) and
+# `pnpm add github:<user>/<repo>` does NOT run a build step, so the entry point
+# must be committed or users install an empty package. There is no compilation
+# step at all — `lib/index.js` is a hand-written re-export — so the sources
+# under `src/` are shipped alongside it.
+# `dist/` stays ignored; nothing writes it.
 dist/
 *.tsbuildinfo
+
+# Figma spill files: oversized projections and rendered images the plugin saves
+# for the model to read later. They are working files, and rendered images may
+# be private design content.
+.figma/
 
 # secrets — never commit a Figma token
 .env

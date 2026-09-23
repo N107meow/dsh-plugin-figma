@@ -1,157 +1,234 @@
 # Figma × DeepSeek Harness 插件
 
-把 Figma 的设计能力做成 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 里**可插拔的一等公民**：模型用原生工具读懂 Figma 文件（结构 / 样式 / 变量 / 组件 / 截图），而不是靠人肉截图粘贴。
+把 Figma 设计文件变成 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 里模型能直接读的东西：文件结构、配色、字体层级，以及**当轮就能看见**的设计稿截图。**只读。**
 
-> **当前状态：设计定稿，尚未开始编码（等待开工指令）。**
+> **当前状态：P0 已完成并通过验收。**
 >
-> 已确定的决策：包名 **`dsh-plugin-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留了可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**。
+> 决策已定：包名 **`dsh-plugin-figma`** · 交付形态 **仅 DSH 原生 Cordis 插件**（MCP 适配器当前不做，但保留可补回的 CI 不变量）· **只读**，不做任何写操作 · **npm + GitHub 双通道分发**。
 >
-> P0 范围已冻结，见 `docs/PLAN.md` §9.1.3。
->
-> **要动手实现？直接看 [`docs/P0-IMPLEMENTATION.md`](docs/P0-IMPLEMENTATION.md)** —— 那是施工图（做什么、按什么顺序、怎么算做完），不需要通读 `PLAN.md`。
+> - 施工图（做什么、按什么顺序、怎么算做完）：[`docs/P0-IMPLEMENTATION.md`](docs/P0-IMPLEMENTATION.md)
+> - 决策与证据（为什么）：[`docs/PLAN.md`](docs/PLAN.md)
 
-## 开发环境准备（唯一必需步骤）
+## 模型看到什么
+
+**两个工具**，不是 130 个。
+
+| 工具 | 作用 |
+|---|---|
+| `figma_capabilities` | 能力目录。默认只回名字 + 一句话；`detail="full"` 才展开参数 schema（渐进式披露） |
+| `figma_call` | 统一执行入口。`op` 指定能力，`target` 可以直接粘 Figma 链接 |
+
+为什么是两个而不是 130 个：工具定义是**每次请求都要付**的上下文税。实测本机 34 个工具的定义约 30.9k 字符（≈8.6k tokens）；把 Figma 的 130+ REST 端点各做一个工具会**再加约 3.3 万 tokens/请求**。所以能力做成**声明式数据表**（`src/core/specs/`），加一个端点 = 加一行数据，工具表长度不变。
+
+P0 提供 4 个能力：
+
+| op | 用途 | 档位 |
+|---|---|---|
+| `file_meta` | 最便宜：名字、版本、最后修改时间、你的 role | Tier 3 |
+| `file` | 浅浅地读整个文件：页面 + 顶层 Frame 结构 | Tier 1 |
+| `file_nodes` | **首选入口**：按 node id 精确读一个或多个子树 | Tier 1 |
+| `image_render` | 导出 Frame 为图片，落盘 + 当轮作为图片块返回 | Tier 1 |
+
+典型用法：
+
+```
+figma_call({ op: "file_meta", target: "https://www.figma.com/design/<key>/<name>?node-id=12-345" })
+figma_call({ op: "file_nodes", target: "<同一个链接>" })                                   // 自动补 depth=2
+figma_call({ op: "file_nodes", args: { fileKey: "<key>", ids: ["101:202"], depth: 4 } })
+figma_call({ op: "image_render", args: { fileKey: "<key>", ids: ["101:202"] } })               // 当轮可见
+```
+
+`target` 支持 `/file/`、`/design/`、`/board/`、`/proto/`、`/slides/` 五种路径，自动做 `?node-id=12-345` → `12:345` 的转换，忽略 `?t=…` 之类的追踪参数，也接受裸 fileKey 与裸 nodeId。
+
+## 安装
+
+### 0. 开发环境准备（clone 本仓库后唯一必需步骤）
 
 插件通过 `link:` 装进 DSH profile，所以 Node 会按**本仓库**（符号链接的真实路径）解析 import，**不会**去 profile 的 `node_modules` 找。因此宿主包必须在本仓库里也装一份：
 
 ```bash
-# ⚠️ 必须钉精确版本 —— npm 上 @deepseek-ai/dsh-tools 的 latest 标签指向陈旧的
-#    0.0.1-rc.1，而部署在用的是 0.1.5-rc.2
-pnpm add -D @deepseek-ai/dsh-tools@0.1.5-rc.2 \
+# ⚠️ 版本必须与"你正在跑的那份 DSH"一致，不要裸装（npm 的 latest 标签经常滞后）：
+D="$(dirname "$(readlink -f "$(command -v dsh)")")/../@deepseek-ai"
+node -p "require('$D/dsh-tools/package.json').version"    # 例如 0.1.5-rc.3
+
+pnpm add -D @deepseek-ai/dsh-tools@<上面读到的版本> \
            @deepseek-ai/schemastery@3.18.2 \
            @deepseek-ai/cordis@4.0.2
 
-npm run check:deps     # 三个必须全 ✅
+npm run check:deps     # 三个必须全 ✅，且版本三元组要与 peerDependencies 对齐
 ```
 
-一条命令跑全部检查：`npm run verify`（deps + 分层门禁 + 测试）。
+**为什么版本必须对齐**：`defineTool`、config schema、凭据接口的契约都由宿主提供。装错版本**不会在加载时报错**，只在工具调用时表现为类型或行为不一致——是最难定位的一类问题。`check:deps` 因此不只检查"能否解析"，还比较版本三元组。
 
-## 读什么
+一条命令跑全部检查：`npm run verify`（deps + 分层门禁 + 全部测试）。
 
-| 文件 | 内容 |
+### 1. 装进 profile
+
+```bash
+# 通道一 · link（最快路径）
+cd ~/.dsh/profiles/web && pnpm add link:~/dsh-plugin-figma
+
+# 通道二 · npm（发布后）
+dsh plugin --profile web add dsh-plugin-figma
+
+# 通道三 · GitHub（不占 npm 名；本机网络吞吐 <1000 B/s，未在此验证）
+cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-plugin-figma
+```
+
+### 2. 挂载
+
+在 `~/.dsh/profiles/web/cordis.patch.yml` 里追加：
+
+```yaml
+- insert:
+    # ⚠️ name = 包名（loader 据此解析模块）；id = Cordis 行 id（可短，用于 patch 定位与日志）
+    - id: figma
+      name: 'dsh-plugin-figma'
+      # config 全部可选，省略即取"最弱席位"默认值：
+      # config:
+      #   credentialRef: FIGMA_TOKEN
+      #   spoolDir: .figma
+      #   rateLimits:
+      #     tier1: { perMinute: 5, burst: 1 }
+```
+
+`cordis.patch.yml` 是热载的，`package.json` 的依赖变更不是——**先装依赖，再挂载**。
+
+### 3. 配置令牌
+
+**令牌不进配置文件**，走 DSH 凭据服务：
+
+```yaml
+# ~/.dsh/.credentials.yaml
+refs:
+  FIGMA_TOKEN: <你的 Figma 令牌>
+```
+
+保存即生效，**不需要重启**（凭据是每次操作重新解析的）。也支持环境变量 `FIGMA_TOKEN`。
+
+令牌去哪拿、勾哪些 scope、为什么建议用计划访问令牌，见 [`docs/PLAN.md`](docs/PLAN.md) §4.4.1。插件需要的只读 scope：
+
+```
+file_content:read, file_metadata:read, file_comments:read, file_dev_resources:read
+```
+
+## 只读：架构约束，不是开关
+
+不实现任何会改变 Figma 云端真实数据的调用。这不是"默认关闭、可以打开"的配置项——`allowWrites` 不作为可配置项存在，因为**当前不存在任何合法取值**。
+
+四条执行机制：
+
+1. 能力表里**没有**写端点（`src/core/specs/`）；
+2. 派发前断言 `spec.method === 'GET'`，否则抛 `ReadOnlyViolationError`（`src/core/capability.js`）；
+3. CI 门禁 `npm run check:layering` 静态检查每条 spec 都是 `GET`；
+4. **禁止自动重定向**（`redirect: 'error'`）——令牌在请求头里，跟随重定向会把它带到非 Figma 域。这是安全项，不是偏好。
+
+## 上下文管道（本方案的真正难点）
+
+实测过的事实决定了这里的每一个设计：
+
+**① `ids` 只决定"从哪开始"，`depth` 才决定"取多少"。**
+
+| 请求 | 响应体 |
 |---|---|
-| [`docs/PLAN.md`](docs/PLAN.md) | **主文档**。技术选型、模块设计、上下文管道、分期验收、风险、事实出处 |
+| `/nodes?ids=<一个 FRAME>`（不传 depth） | 48,659 B |
+| `/nodes?ids=<同一个 FRAME>&depth=1` | 2,491 B（−95%） |
+| `/nodes?ids=<根画布>`（不传 depth） | 1,193,266 B ≈ 整个文件 |
 
-## 方案要点（三句话）
+所以 `figma_call` 在 `ids` 存在而 `depth` 缺失时**自动补 `depth=2`**，不把球踢给模型——模型对"取一个节点"的直觉预期是"取这一层"。
 
-1. **不需要从零实现 MCP 协议。** DSH 自带 `dsh-mcp-client`，MCP 的「标准描述层 + 自动发现 + 调度协议」三层已经具备；要补的是 Figma 的**能力底座**（声明式 capability registry）和**上下文管道**（把几十 MB 的节点树压成模型读得起的形状）。
-2. **对模型只暴露 3 个工具**，而不是把 Figma 的 130+ REST 端点各做一个工具。实测外推：后者会在**每一次请求**上多加约 3.3 万 tokens，前者约 750。
-3. **核心协议无关，双适配器。** 默认走 DSH 原生 Cordis 插件；同一套核心再导出一个 MCP server，就能喂给别的宿主。核心不含任何 `@deepseek-ai/*` 依赖。
+**② 投影把节点树压到约四分之一。** 白名单保留 `id/name/type/layout*/padding*/fills/strokes/box/characters/style/component*/children`，丢弃 `constraints/relativeTransform/exportSettings/interactions/…`。实测：
 
-## 两个已经踩出来的坑（实现前务必读）
+| 文件 / 节点 | 原始 | 投影后 | 压缩 |
+|---|---|---|---|
+| 单画板 `depth=4`（18 节点） | 19,476 B | 4,940 B | −75% |
+| 仪表盘 LIGHT（154 节点） | 130,212 B | 30,960 B | −76% |
+| 同一仪表盘 DARK（154 节点） | 129,782 B | 30,900 B | −76% |
 
-- **MCP 协议已分裂成两代。** 最新 `2026-07-28` 是破坏性变更（移除了 `initialize` 握手与会话）。但本机 `dsh-mcp-client` 依赖的 `@modelcontextprotocol/sdk@1.30.0` **只支持到 `2025-11-25`**。所以 P2 适配器必须按 `2025-11-25` 写，否则 DSH 连不上。细节见 `docs/PLAN.md` §6 的提示框。
-- **Figma Tier 1 限流极紧**：`GET file` / `nodes` / `images` 在 Full/Dev 席位下只有 **10–20 次/分钟**，View/Collab 席位 **20 次/月**。所以缓存、请求合并、默认 `depth` 限制是**可用性前提**，不是性能优化。
+**③ 颜色归一有一个会静默出错的坑。** Figma 的 paint 是 `{color:{r,g,b,a}}`，但 **`color.a` 是颜色的 alpha 通道，不是图层透明度**；图层透明度是另一个字段 **`fill.opacity`**。混用不会报错，只会算出看起来合理的错误颜色——而且实测样本里 8 个 fill 全部 `a=1.0`，写错也测不出来。所以：hex 只取 `r/g/b`，透明度只读 `fill.opacity` 且仅在 `≠1` 时输出。回归测试在 `test/core/projection.test.js`。
 
-## 目标结构
+**④ 超预算不是失败。** 投影仍超预算时：收紧 depth **重取一次**（只一次，无限收紧会烧掉 Tier 1 额度）→ 仍超 → 回落"结构骨架 + 节点计数 + 配色/字体摘要"，完整投影落盘到 `.figma/<hash>.json`，结果里给路径。结果 meta 回报 `nodeCount / projectedChars / depthUsed / cached / waitedMs / spooled`，**模型看得见成本，下一轮会自己收窄**。
+
+**⑤ 图片立刻落盘。** Figma 的图片端点返回的是**短期签名 URL**（会过期），所以拿到就下载、落盘到 `.figma/images/`、并存进 DSH 的附件存储；工具结果同时给出相对路径、字节数，**并把图片作为持久 image block 挂上**，模型当轮就能看见。注意：下载签名 URL 时**不带令牌**——那是第三方域。
+
+**⑥ 限流按"最弱席位"给默认值。** Tier 1 默认 `5/min, burst 1`，因为别的 DSH 用户很可能是 View/Collab 席位（Tier 1 只有 20 次/月），而调用前无法得知。桶空时**排队而不是丢弃**，并把等待时长回报给模型；只在收到 429 时用响应头事后校正（`Retry-After` / `X-Figma-Rate-Limit-Type` / `X-Figma-Upgrade-Link` **只在 429 上出现**，成功响应没有）。
+
+**⑦ 缓存只用 TTL，没有 304 分支。** `/meta` 虽然返回 `etag`，但带 `If-None-Match` 重请求得到 `200` + 全量而非 `304`，且响应头写着 `cache-control: no-cache, no-store`。所以条件请求分支是死代码，不存在。失效判据改用 `/meta` 的 `version`，变化时清掉该文件的全部缓存。
+
+## 令牌失效时会主动要求你换令牌
+
+插件**能检测**（401 `Invalid token`）、**能提示**，但**不能替你自动申请**——Figma 生成令牌时明文只显示一次，PAT 也不可刷新，新令牌必须由人粘贴回来。
+
+做法是把失效变成一条**活跃的补救指令**而不是失败的调用（工具**不抛错**，返回结构化的 `token_invalid` + 可执行步骤），并明确授权模型**主动找你换令牌、换完自动重试**。
+
+在此基础上加了两条：**401 不重试**（重试不会让令牌复活，只会白烧一个额度、还让模型以为这是暂时故障），以及**进程内记忆**——同一个凭据值失效过就立刻失败并复用同一份指引，判据是凭据值的哈希而不是时间，所以**放好新令牌后下一次调用自动恢复**。
+
+## 仓库结构
 
 ```
-packages/
-├── core/            # 协议无关核心：能力注册表 / 调度 / 缓存 / 上下文投影（零 DSH 依赖）
-├── adapter-dsh/     # Cordis 插件，把核心接进 DeepSeek Harness
-├── adapter-mcp/     # (P2) 独立 MCP server
-└── figma-plugin/    # (P3) 伴生 Figma 插件 + 画布桥
+src/
+├── core/               # ⛔ 零 DSH 依赖、⛔ 不出现 ctx（CI 门禁守住）
+│   ├── types.js        #   类型词汇（无运行时逻辑）
+│   ├── tokens.js       #   近似 token / 精确字节估算
+│   ├── capability.js   #   spec 校验 + 只读断言 + 参数校验 + 缓存 key
+│   ├── specs/          #   ★ 能力声明表（纯数据）
+│   ├── url.js          #   Figma URL → { fileKey, nodeId }
+│   ├── auth.js         #   TokenSource + 集中脱敏
+│   ├── http.js         #   fetch 封装（禁重定向、超时、错误归一）
+│   ├── retry.js        #   只对 429 / 5xx 退避，加抖动
+│   ├── scheduler.js    #   令牌桶 + 同参单飞
+│   ├── cache.js        #   LRU + 纯 TTL
+│   ├── projection.js   #   ★ 节点树 → 模型友好结构（颜色归一在这里）
+│   ├── budget.js       #   动态 depth + spool 溢出
+│   ├── provider.js     #   把上面组装成 ToolProvider
+│   ├── errors.js       #   错误归一（remedy 是可执行的下一步）
+│   └── spool-sink.js   #   落盘接口（core 只定义接口，不碰 fs）
+└── adapter/            # 唯一允许 import DSH 之处
+    ├── index.js        #   apply(ctx, config)
+    ├── config.js       #   Schemastery config
+    ├── tools.js        #   figma_capabilities / figma_call
+    └── spool-fs.js     #   用 ctx.fs / ctx.attachments 实现 core 的接口
+lib/index.js            # 包入口（转发层，必须提交：git 安装不执行构建）
+test/core/              # 不 import 任何 DSH，注入 fetch/时钟，可离线跑
 ```
+
+**分层纪律**：`src/core/**` 里不得出现宿主包 import，不得出现 `ctx`。这不是洁癖——它是"将来补 MCP 适配器不用重构"的唯一保证，由 `npm run check:layering` 守住，且**门禁本身有测试证明它会失败**（`test/core/layering.test.js` 会故意注入违规代码）。
+
+**为什么源码是 `.js` 而不是 `.ts`**：`package.json` 的 `main` 指向必须提交的 `lib/index.js`，而 git 安装不执行构建。用 `.ts` 就要依赖 Node 的类型擦除（Node ≥ 22.18），与 `engines: node >= 20` 冲突。所以是**纯 JS + JSDoc 类型**，没有 bundler、没有构建步骤。`docs/P0-IMPLEMENTATION.md` §3 的 `.ts` 文件名是命名简写，§9 明确要求"纯 JS + JSDoc、不要引入 bundler"，两者冲突时按后者。
+
+## 验证
+
+```bash
+npm run verify             # deps + 分层门禁 + 全部测试（离线，不需要网络和令牌）
+npm run check:deps         # 三个宿主包可从本仓库解析
+npm run check:layering     # core 无宿主依赖 / 无 ctx；每条 spec 都是 GET
+npm test                   # 150 条测试
+bash scripts/verify-wiring.sh   # 在隔离 profile 里端到端验证装配（会创建并删除临时 profile）
+```
+
+真实数据验证（**不进仓库**，需要环境变量）：
+
+```bash
+FIGMA_TEST_FILE_KEY=<key> FIGMA_TEST_NODE_ID=<id> FIGMA_TOKEN=<token> \
+  node --test test/core/real-data.test.js
+```
+
+`scripts/verify-wiring.sh` 检查四件事，全绿才算装配正确：包名能从 profile 的 `node_modules` 解析 → `cordis.patch.yml` 的 insert 行进入组合配置 → **DSH 真的加载、激活，且两个工具确实在注册表里** → 日志无加载错误。
 
 ## 分期
 
-| 阶段 | 内容 | 估算 |
+| 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0** | core + 3 个工具 + 接线，端到端可用 | 2–3 天 |
-| P1 | 设计系统语义（组件 / 变量 / 样式） | 1–2 天 |
-| P2 | MCP 适配器，可移植到其他宿主 | 0.5–1 天 |
-| P3 | 伴生 Figma 插件 + 画布桥 + 可视化面板 | 3–4 天 |
-
-## 决策状态
-
-| 决策 | 状态 |
-|---|---|
-| Figma 席位 | ✅ **Full/Dev** —— Tier 1 为 10–20 次/分，方案按"预算制调度"实现（令牌桶 + 合并 + 缓存，默认保守取 10/min） |
-| 写操作 | ✅ **不做，本插件只读** —— 所有会改 Figma 真实数据的端点**不进 capability registry**，并在派发前断言 `method === 'GET'`。这不是可打开的开关，是架构约束。详见 `docs/PLAN.md` §9.2 |
-
-**"只读"是一条硬约束，不是默认值。** 意味着：能力表里没有写端点、运行期有 `GET` 断言、CI 有门禁、文档只引导只读 scope，且代码里不预埋任何 dry-run / 审批钩子。
-
-### 令牌会过期 —— 但不用每 90 天手动重录
-
-Figma 的两种令牌差别很大，选对了就省事：
-
-| | 个人访问令牌（PAT） | 计划访问令牌（Plan token） |
-|---|---|---|
-| 最长有效期 | **90 天**，且**不可刷新** | **1 年**，**可刷新**（旧密钥续用 24 小时） |
-| 创建门槛 | 自助，Settings → Security | 组织管理员 + MFA |
-| 只读适配 | 可以（勾只读 scope） | **天然不支持任何写 scope**，与只读定位完全吻合 |
-
-**如果你们是 Organization / Enterprise 套餐，用计划访问令牌** —— 一年一续、可平滑轮换、不可能有写权限。个人 PAT 就接受每 90 天换一次。
-
-无论哪种，**换令牌都不需要重启 DSH**：凭据是每次操作重新解析的，且凭据文件带 `watch`，保存即生效。设计上我们**不存过期日期**（会漂移），而是捕获 403 时直接给出重录步骤。详见 `docs/PLAN.md` §4.4.1。
+| **P0** | core + 2 个工具 + 接线，端到端可用 | ✅ 完成 |
+| P1 | 设计系统语义（组件 / 变量 / 样式） | 未开始 |
+| P2 | MCP 适配器，可移植到其他宿主 | 当前不做（core 已具备条件） |
+| P3 | 伴生 Figma 插件 + 画布桥 + `figma_canvas` | 未开始 |
 
 ## 参考文献
 
 - Shi, Y., Zhang, W., Cui, T. — *A Programming Paradigm for Spatiotemporal Composability*, [arXiv:2608.25512](https://arxiv.org/abs/2608.25512)（北京大学 / DeepSeek-AI）。Cordis 的形式化基础，本方案的生命周期设计依据其 revertible effects / reactive coeffects 概念。
 - [Figma REST API 文档](https://developers.figma.com/docs/rest-api/) · [Figma Plugin API 文档](https://developers.figma.com/docs/plugins/api/api-reference/)
 
-### 令牌失效时会主动要求你换令牌
+## 发布前必做
 
-插件**能检测**（Figma 返回 `401 Invalid token`）、**能提示**，但**不能替你自动申请** —— Figma 生成令牌时明文只显示一次，PAT 也不可刷新，新令牌必须由人粘贴回来。
-
-做法是把失效变成一条**活跃的补救指令**而不是失败的调用：工具返回结构化的 `token_invalid` + 具体步骤（去哪生成、勾哪些只读 scope、写到 `~/.dsh/.credentials.yaml` 的哪一行），并明确授权模型**主动找你换令牌、换完自动重试**。这样闭环是完整的。
-
-**做不到的**：提前预警。Figma 不通过 API 暴露令牌签发时间或剩余有效期，所以"还有 7 天过期就提醒你"没有实现路径，只能失效后反应式处理。详见 `docs/PLAN.md` §5.4.1。
-
-## 开源范围（`docs/PLAN.md` §12）
-
-本项目将开源，**范围是 DeepSeek Harness 插件** —— 受众是其他 DSH 用户，不是多宿主通用工具。
-
-这决定了设计重点：
-
-**1. 默认值要面向更弱的 Figma 席位。** 本机是 Full/Dev（Tier 1 = 10–20/分），但别的 DSH 用户很可能是 View/Collab 席位 —— **Tier 1 只有 20 次/月**，且调用前无法得知。所以默认更保守（5/分，burst 1），靠运行时响应头放宽，并为月度上限单独做一档可理解的错误。
-
-**2. 排障要自助。** `figma_doctor` 输出**可直接粘进 issue 的脱敏报告**（凭据来源、令牌有效性、实际持有的 scope、席位档位、一次端到端烟测、代理是否生效）。
-
-**3. 凭据层保持薄接口**（`TokenSource`），理由是可测试 + 抗 DSH 版本漂移（DSH 目前是 `0.1.5-rc` 预发布版）。
-
-### 交付形态：仅 DSH 原生插件
-
-**MCP 适配器当前不做。** 工具名干净（`figma_call` 而非 `mcp__figma__figma_call`）、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live` 热重载。
-
-将来若需要 MCP 入口，补回来约 60–100 行、**不需要重构** —— 因为 `core` 保持协议无关，且这是被 CI 守住的架构不变量（`core` 无 `@deepseek-ai/*` 依赖、无 `ctx`、接口宿主中立），不是口头承诺。详见 `docs/PLAN.md` §12.3.1。
-
-### 分发：npm + GitHub 双通道
-
-**通道一 · npm（最省事，推荐）**
-
-```bash
-dsh plugin --profile web add <包名>
-```
-
-> 注：最初选的 `dsh-figma` 在 npm 上已被他人占用（`dushaobindoudou`，2026-08-19 发布 `0.0.1` 占位版，做的是同类项目），故改用 **`dsh-plugin-figma`**。详见 `docs/PLAN.md` §9.1.2。
-
-**通道二 · GitHub（不占 npm 名）**
-
-```bash
-cd ~/.dsh/profiles/web && pnpm add github:<user>/dsh-plugin-figma
-```
-
-> 未在本机验证 —— GitHub 可达但吞吐极低（git 报 `Less than 1000 bytes/sec`）。你的网络更好，请自行确认。
-
-**通道三 · clone + link（已实测通过，最快路径）**
-
-```bash
-git clone <repo> ~/dsh-plugin-figma
-cd ~/.dsh/profiles/web && pnpm add link:~/dsh-plugin-figma
-```
-
-然后在 `cordis.patch.yml` 里 insert：
-
-```yaml
-- insert:
-    # name = 包名（loader 据此解析模块）；id = Cordis 行 id（可短，用于 patch 定位与日志）
-    - id: figma
-      name: 'dsh-plugin-figma'
-```
-
-**装配已端到端实测**（在隔离 profile 上验证，未动正在使用的 profile）：裸包名可从 profile 的 `node_modules` 解析 ✅ · insert 行进入组合 ✅ · **插件真的加载并激活** ✅ · **卸载时 disposer 执行** ✅ · 无加载错误 ✅
-
-> 因为 git 安装**不执行构建**，编译产物 `lib/` 必须提交进仓库（`.gitignore` 已相应调整）。也因此**仓库根就是包根**（单一平铺包，不用 workspace）—— 否则 `github:` 安装会拿到没有 `name` 的仓库根。
-
-> ⚠️ 发布前必做：§1.3/§1.4 的实测数据含真实 fileKey、节点 id、文件名与 Figma handle，**必须先脱敏或换成合成 fixture**。完整清单见 `docs/PLAN.md` §12.10。
+`docs/PLAN.md` §1.3/§1.4 与 `docs/P0-IMPLEMENTATION.md` 的实测数据含真实 fileKey、节点 id、文件名与作者 handle。源码与测试已全部脱敏（`test/` 里没有任何真实 key），但这两份文档还没有——开源前必须脱敏或替换。完整清单见 `docs/PLAN.md` §12.10。
