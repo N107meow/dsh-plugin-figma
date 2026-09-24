@@ -4,7 +4,7 @@
  * Everything here exists so a core test never needs a network, a real clock, or
  * real elapsed time: transport, time, sleeping, and jitter are all injected.
  *
- * @module dsh-plugin-figma/test/support/harness
+ * @module figma-mcp-dsh/test/support/harness
  */
 
 import { createProvider } from '../../src/core/provider.js'

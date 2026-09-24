@@ -16,7 +16,7 @@
  * Nothing from that file may appear in a tracked file — `check-secrets` scans
  * for exactly these strings.
  *
- * @module dsh-plugin-figma/test/fixtures/real-file
+ * @module figma-mcp-dsh/test/fixtures/real-file
  */
 
 /** File key from the environment, if one was provided. */

@@ -13,7 +13,7 @@
  * belong to the always-on suite. This file imports only the fixture: importing a
  * `*.test.js` would execute that suite and spend real quota.
  *
- * @module dsh-plugin-figma/test/core/structured-read
+ * @module figma-mcp-dsh/test/core/structured-read
  */
 
 import assert from 'node:assert/strict'

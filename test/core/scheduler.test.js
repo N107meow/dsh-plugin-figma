@@ -5,7 +5,7 @@
  * so a test that used real time would either be slow or flaky — and both are
  * worse than an injected clock.
  *
- * @module dsh-plugin-figma/test/core/scheduler
+ * @module figma-mcp-dsh/test/core/scheduler
  */
 
 import assert from 'node:assert/strict'

@@ -1,12 +1,12 @@
 # 贡献指南
 
-感谢你有兴趣改进 `dsh-plugin-figma`。仓库不大，但有几条纪律**不靠自觉、靠门禁**——花两分钟读完这一页，能省掉一次返工。
+感谢你有兴趣改进 `figma-mcp-dsh`。仓库不大，但有几条纪律**不靠自觉、靠门禁**——花两分钟读完这一页，能省掉一次返工。
 
 ## 1. 环境准备
 
 ```bash
-git clone https://github.com/N107meow/dsh-plugin-figma.git
-cd dsh-plugin-figma
+git clone https://github.com/N107meow/figma-mcp-dsh.git
+cd figma-mcp-dsh
 ```
 
 插件通过 `link:` 装进 DSH profile，Node 会按**本仓库**（符号链接的真实路径）解析 import，所以三个宿主包必须在本仓库里也装一份，且**版本要与正在运行的 DSH 三元组对齐**（装错版本不会在加载时报错，只在调用时表现为类型/行为不一致）：

@@ -40,8 +40,8 @@
 
 ## 报告安全问题
 
-- **安全漏洞**：请走 GitHub 的私有 [Security Advisory](https://github.com/N107meow/dsh-plugin-figma/security/advisories/new)（仓库 **Security** 标签页 → *Report a vulnerability*），**不要**开公开 Issue。
-- **一般问题**：走 [Issue](https://github.com/N107meow/dsh-plugin-figma/issues)，附 `npm run verify` 输出与脱敏后的结构化错误。
+- **安全漏洞**：请走 GitHub 的私有 [Security Advisory](https://github.com/N107meow/figma-mcp-dsh/security/advisories/new)（仓库 **Security** 标签页 → *Report a vulnerability*），**不要**开公开 Issue。
+- **一般问题**：走 [Issue](https://github.com/N107meow/figma-mcp-dsh/issues)，附 `npm run verify` 输出与脱敏后的结构化错误。
 - **报告里不要贴令牌**，也不要贴真实设计文件的链接。需要复现时，用合成值描述，或先说明"可以私下提供"。
 - 如果令牌已经贴出去过：立刻去 Figma → Settings → Security 撤销并重建（PAT 不可刷新，只能重建），然后把新值写回 `~/.dsh/.credentials.yaml`——保存即生效。
 

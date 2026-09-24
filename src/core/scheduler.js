@@ -13,7 +13,7 @@
  * after Figma itself says so on a 429 response header. Being slow for the first
  * few calls is recoverable; exhausting someone's monthly budget is not.
  *
- * @module dsh-plugin-figma/core/scheduler
+ * @module figma-mcp-dsh/core/scheduler
  */
 
 /**

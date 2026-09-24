@@ -11,7 +11,7 @@
  * a whole-file read of the source file was 1,564,042 bytes, while the shallow
  * (`depth=2`) read these capabilities use was 6,338 bytes.
  *
- * @module dsh-plugin-figma/test/core/p1-real-data
+ * @module figma-mcp-dsh/test/core/p1-real-data
  */
 
 import assert from 'node:assert/strict'

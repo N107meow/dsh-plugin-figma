@@ -11,7 +11,7 @@
  *    values (docs/PLAN.md section 5.4.1 channel A), because a thrown error
  *    reaches the model as `Error: …` and invites a pointless retry.
  *
- * @module dsh-plugin-figma/core/errors
+ * @module figma-mcp-dsh/core/errors
  */
 
 import { READ_ONLY_SCOPES, credentialDeliverySteps } from './auth.js'

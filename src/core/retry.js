@@ -6,7 +6,7 @@
  * credential failure burns a rate-limit token and, worse, makes the model think
  * the problem was transient.
  *
- * @module dsh-plugin-figma/core/retry
+ * @module figma-mcp-dsh/core/retry
  */
 
 /**

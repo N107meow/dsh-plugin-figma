@@ -1,7 +1,7 @@
 /**
  * Transport and retry policy.
  *
- * @module dsh-plugin-figma/test/core/http
+ * @module figma-mcp-dsh/test/core/http
  */
 
 import assert from 'node:assert/strict'

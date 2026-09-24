@@ -29,7 +29,7 @@
  * Usage:
  *   node scripts/run-real-checks.mjs [--raw] [-- <extra node --test args>]
  *
- * @module dsh-plugin-figma/scripts/run-real-checks
+ * @module figma-mcp-dsh/scripts/run-real-checks
  */
 
 import { spawnSync } from 'node:child_process'

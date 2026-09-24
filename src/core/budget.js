@@ -17,7 +17,7 @@
  * user's entire budget on one question. A skeleton plus a path is a better
  * answer than a burned quota.
  *
- * @module dsh-plugin-figma/core/budget
+ * @module figma-mcp-dsh/core/budget
  */
 
 import { spoolNameFor } from './cache.js'

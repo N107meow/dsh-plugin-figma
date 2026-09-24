@@ -20,7 +20,7 @@
  * every live check and spending real quota a second time. So the helper lives in
  * a module with no test registrations at import time, and both suites import it.
  *
- * @module dsh-plugin-figma/test/fixtures/structured-read
+ * @module figma-mcp-dsh/test/fixtures/structured-read
  */
 
 import assert from 'node:assert/strict'

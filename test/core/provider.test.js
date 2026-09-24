@@ -5,7 +5,7 @@
  * a megabyte instead of an error, a wrong credential classification sends the
  * model into a retry loop, and an unredacted token ends up in a transcript.
  *
- * @module dsh-plugin-figma/test/core/provider
+ * @module figma-mcp-dsh/test/core/provider
  */
 
 import assert from 'node:assert/strict'

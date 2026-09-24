@@ -14,7 +14,7 @@
  * Persisting a spill file must never be the reason a question cannot be
  * answered.
  *
- * @module dsh-plugin-figma/adapter/spool-fs
+ * @module figma-mcp-dsh/adapter/spool-fs
  */
 
 import { mkdir, writeFile } from 'node:fs/promises'

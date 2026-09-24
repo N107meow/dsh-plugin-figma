@@ -7,7 +7,7 @@
  * measured in requests per month. Starting slow is recoverable; spending
  * someone's monthly quota is not.
  *
- * @module dsh-plugin-figma/adapter/config
+ * @module figma-mcp-dsh/adapter/config
  */
 
 import Schema from '@deepseek-ai/schemastery'

@@ -9,7 +9,7 @@
  * (tighten depth, spill to disk, report cost to the model) — never to
  * **assert** exactness in a test or a user-facing claim.
  *
- * @module dsh-plugin-figma/core/tokens
+ * @module figma-mcp-dsh/core/tokens
  */
 
 /**

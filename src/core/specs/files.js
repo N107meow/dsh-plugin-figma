@@ -3,7 +3,7 @@
  *
  * These are data, not code. Adding a Figma endpoint means adding a row here.
  *
- * @module dsh-plugin-figma/core/specs/files
+ * @module figma-mcp-dsh/core/specs/files
  */
 
 import { READ_ONLY_METHOD } from '../capability.js'

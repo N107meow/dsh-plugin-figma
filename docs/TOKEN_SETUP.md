@@ -43,7 +43,7 @@ refs:
 ```yaml
 - insert:
     - id: figma
-      name: 'dsh-plugin-figma'
+      name: 'figma-mcp-dsh'
       config:
         credentialRef: MY_FIGMA_TOKEN
 ```

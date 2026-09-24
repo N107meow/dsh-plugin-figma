@@ -6,7 +6,7 @@
  * URL immediately, persists the bytes, and attaches the image to the tool
  * result. A URL handed to the model and read later would simply 403.
  *
- * @module dsh-plugin-figma/core/specs/images
+ * @module figma-mcp-dsh/core/specs/images
  */
 
 import { READ_ONLY_METHOD } from '../capability.js'

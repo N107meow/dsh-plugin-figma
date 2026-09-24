@@ -12,7 +12,7 @@
  * (`figma_call`). Adding a Figma capability costs a row in `core/specs`, not a
  * new tool and not a context tax.
  *
- * @module dsh-plugin-figma/adapter/tools
+ * @module figma-mcp-dsh/adapter/tools
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'

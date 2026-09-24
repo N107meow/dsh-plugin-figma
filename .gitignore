@@ -32,6 +32,9 @@ fixtures/recorded/
 coverage/
 *.log
 
+# local experiment output (design-to-HTML builds, rendered prototypes)
+output/
+
 # editor / OS
 .DS_Store
 .idea/

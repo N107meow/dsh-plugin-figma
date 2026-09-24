@@ -6,7 +6,7 @@
  * once at load; every argument is checked before a URL is built; and the
  * read-only constraint is asserted at dispatch rather than trusted to review.
  *
- * @module dsh-plugin-figma/core/capability
+ * @module figma-mcp-dsh/core/capability
  */
 
 import { badArgs } from './errors.js'

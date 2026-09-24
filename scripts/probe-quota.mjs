@@ -37,7 +37,7 @@
  *   1 — still rate-limited; running the suite now would fail the same way
  *   2 — configuration is missing
  *
- * @module dsh-plugin-figma/scripts/probe-quota
+ * @module figma-mcp-dsh/scripts/probe-quota
  */
 
 import { existsSync } from 'node:fs'

@@ -25,7 +25,7 @@
  * `--root` exists so the gate itself can be tested: point it at a directory
  * containing a deliberate violation and it must exit non-zero.
  *
- * @module dsh-plugin-figma/scripts/check-layering
+ * @module figma-mcp-dsh/scripts/check-layering
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs'

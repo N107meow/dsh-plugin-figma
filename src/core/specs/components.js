@@ -8,7 +8,7 @@
  * plainly exist. Mixing the two views into one capability would make the model
  * confidently say "this file has no components" about a file that has them.
  *
- * @module dsh-plugin-figma/core/specs/components
+ * @module figma-mcp-dsh/core/specs/components
  */
 
 import { READ_ONLY_METHOD } from '../capability.js'

@@ -13,7 +13,7 @@
  * Staleness is handled instead by a short TTL and by explicit invalidation when
  * `/meta` reports a new `version`.
  *
- * @module dsh-plugin-figma/core/cache
+ * @module figma-mcp-dsh/core/cache
  */
 
 /**

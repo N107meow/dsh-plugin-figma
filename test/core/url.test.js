@@ -6,7 +6,7 @@
  * not a place to publish one. The parser has no notion of which keys exist, so
  * a 22-character placeholder exercises exactly the same code path.
  *
- * @module dsh-plugin-figma/test/core/url
+ * @module figma-mcp-dsh/test/core/url
  */
 
 import assert from 'node:assert/strict'

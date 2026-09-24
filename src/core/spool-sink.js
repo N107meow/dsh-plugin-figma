@@ -6,7 +6,7 @@
  * interface's shared helpers: name validation, and two sinks that tests and
  * degraded deployments can use.
  *
- * @module dsh-plugin-figma/core/spool-sink
+ * @module figma-mcp-dsh/core/spool-sink
  */
 
 /** Directory name used when nothing else is configured. */

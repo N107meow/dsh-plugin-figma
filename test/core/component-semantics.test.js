@@ -13,7 +13,7 @@
  *    style.** Dropping it — which P0 did — makes "which style does this use?"
  *    unanswerable from any other field.
  *
- * @module dsh-plugin-figma/test/core/component-semantics
+ * @module figma-mcp-dsh/test/core/component-semantics
  */
 
 import assert from 'node:assert/strict'

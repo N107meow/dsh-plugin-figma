@@ -7,7 +7,7 @@
  * declared tools are the two the design promises, and that the config schema
  * accepts an empty row and fills in the weakest-seat defaults.
  *
- * @module dsh-plugin-figma/test/adapter
+ * @module figma-mcp-dsh/test/adapter
  */
 
 import assert from 'node:assert/strict'

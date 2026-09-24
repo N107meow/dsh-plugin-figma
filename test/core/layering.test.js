@@ -5,7 +5,7 @@
  * known to be quiet. These tests run the real script against directories that
  * contain deliberate violations and require a non-zero exit.
  *
- * @module dsh-plugin-figma/test/core/layering
+ * @module figma-mcp-dsh/test/core/layering
  */
 
 import assert from 'node:assert/strict'

@@ -5,7 +5,7 @@
  * throw, does not look wrong, and is invisible on any file whose fills happen
  * to be opaque — so it is asserted explicitly rather than trusted.
  *
- * @module dsh-plugin-figma/test/core/projection
+ * @module figma-mcp-dsh/test/core/projection
  */
 
 import assert from 'node:assert/strict'

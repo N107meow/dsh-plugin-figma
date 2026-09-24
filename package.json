@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-figma",
+  "name": "figma-mcp-dsh",
   "version": "0.1.0",
   "description": "Read-only Figma design-source tools for DeepSeek Harness: inspect file structure, colors, typography and export images as native tools.",
   "license": "MIT",
@@ -46,10 +46,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/N107meow/dsh-plugin-figma.git"
+    "url": "git+https://github.com/N107meow/figma-mcp-dsh.git"
   },
   "bugs": {
-    "url": "https://github.com/N107meow/dsh-plugin-figma/issues"
+    "url": "https://github.com/N107meow/figma-mcp-dsh/issues"
   },
-  "homepage": "https://github.com/N107meow/dsh-plugin-figma#readme"
+  "homepage": "https://github.com/N107meow/figma-mcp-dsh#readme"
 }

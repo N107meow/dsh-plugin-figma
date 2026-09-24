@@ -43,7 +43,7 @@
  * `--root` exists so the gate can be tested: point it at a directory holding a
  * deliberate violation and it must exit non-zero.
  *
- * @module dsh-plugin-figma/scripts/check-secrets
+ * @module figma-mcp-dsh/scripts/check-secrets
  */
 
 import { execFileSync } from 'node:child_process'

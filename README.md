@@ -1,8 +1,8 @@
 [中文](./README.md) | [English](./README_EN.md)
 
-# dsh-plugin-figma
+# figma-mcp-dsh
 
-`dsh-plugin-figma` 是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的只读 Figma 插件。它让模型读取设计文件结构、颜色、字体、组件和样式，并把指定画板渲染成当轮可见的图片。
+`figma-mcp-dsh` 是一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的只读 Figma 插件。它让模型读取设计文件结构、颜色、字体、组件和样式，并把指定画板渲染成当轮可见的图片。
 
 ## 核心功能
 
@@ -44,14 +44,14 @@ file_dev_resources:read
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add github:N107meow/dsh-plugin-figma
+pnpm add github:N107meow/figma-mcp-dsh
 ```
 
 如果你正在本地开发插件，请改用 `link:` 安装：
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add link:/absolute/path/to/dsh-plugin-figma
+pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
 本地开发还需要在插件仓库中安装与当前 DSH 版本一致的宿主依赖。运行 `npm run check:deps` 可以检查版本是否匹配。
@@ -63,7 +63,7 @@ pnpm add link:/absolute/path/to/dsh-plugin-figma
 ```yaml
 - insert:
     - id: figma
-      name: dsh-plugin-figma
+      name: figma-mcp-dsh
 ```
 
 `cordis.patch.yml` 支持热加载。首次安装或更新依赖后，请重启 DSH。
@@ -186,4 +186,4 @@ npm run verify
 
 该命令检查宿主依赖、只读分层、敏感信息和测试套件。
 
-本项目采用 [MIT License](./LICENSE)。欢迎通过 [Issues](https://github.com/N107meow/dsh-plugin-figma/issues) 报告问题。本项目与 Figma 无隶属关系，也未获得 Figma 官方背书。
+本项目采用 [MIT License](./LICENSE)。欢迎通过 [Issues](https://github.com/N107meow/figma-mcp-dsh/issues) 报告问题。本项目与 Figma 无隶属关系，也未获得 Figma 官方背书。

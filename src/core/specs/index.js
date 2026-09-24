@@ -9,7 +9,7 @@
  * non-`GET` method or an incomplete cache key — fails immediately at import
  * rather than at the moment a user asks a question.
  *
- * @module dsh-plugin-figma/core/specs
+ * @module figma-mcp-dsh/core/specs
  */
 
 import { validateSpecs } from '../capability.js'

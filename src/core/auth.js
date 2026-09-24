@@ -11,7 +11,7 @@
  *    request header and appears in no other place, and every outgoing string
  *    passes a redactor first.
  *
- * @module dsh-plugin-figma/core/auth
+ * @module figma-mcp-dsh/core/auth
  */
 
 import { createHash } from 'node:crypto'

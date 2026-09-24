@@ -5,7 +5,7 @@
  * that keeps "this plugin never writes to Figma" true after the people who
  * wrote it have moved on.
  *
- * @module dsh-plugin-figma/test/core/capability
+ * @module figma-mcp-dsh/test/core/capability
  */
 
 import assert from 'node:assert/strict'

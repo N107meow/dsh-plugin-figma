@@ -1,8 +1,8 @@
 [中文](./README.md) | [English](./README_EN.md)
 
-# dsh-plugin-figma
+# figma-mcp-dsh
 
-`dsh-plugin-figma` is a read-only Figma plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It lets models inspect file structure, colors, typography, components, and styles, then render selected frames as images visible in the current conversation.
+`figma-mcp-dsh` is a read-only Figma plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). It lets models inspect file structure, colors, typography, components, and styles, then render selected frames as images visible in the current conversation.
 
 ## Features
 
@@ -44,14 +44,14 @@ Install the plugin in your DSH profile:
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add github:N107meow/dsh-plugin-figma
+pnpm add github:N107meow/figma-mcp-dsh
 ```
 
 Use a `link:` dependency instead when you develop the plugin locally:
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add link:/absolute/path/to/dsh-plugin-figma
+pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
 Local development also requires host packages that match your current DSH version. Run `npm run check:deps` in the plugin repository to verify the versions.
@@ -63,7 +63,7 @@ Add this entry to `~/.dsh/profiles/web/cordis.patch.yml`:
 ```yaml
 - insert:
     - id: figma
-      name: dsh-plugin-figma
+      name: figma-mcp-dsh
 ```
 
 Changes to `cordis.patch.yml` load without a restart. Restart DSH after the first installation or any dependency update.
@@ -186,4 +186,4 @@ npm run verify
 
 The command checks host dependencies, read-only boundaries, sensitive data, and the test suite.
 
-This project is available under the [MIT License](./LICENSE). Report problems through [GitHub Issues](https://github.com/N107meow/dsh-plugin-figma/issues). This project is not affiliated with or endorsed by Figma.
+This project is available under the [MIT License](./LICENSE). Report problems through [GitHub Issues](https://github.com/N107meow/figma-mcp-dsh/issues). This project is not affiliated with or endorsed by Figma.

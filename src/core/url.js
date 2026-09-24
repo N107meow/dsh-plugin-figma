@@ -5,7 +5,7 @@
  * whole class of "which path segment is the key?" and "why does the node id
  * have a dash?" failures before they reach the model's working memory.
  *
- * @module dsh-plugin-figma/core/url
+ * @module figma-mcp-dsh/core/url
  */
 
 /**

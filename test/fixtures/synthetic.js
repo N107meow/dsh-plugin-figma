@@ -7,7 +7,7 @@
  * `test/fixtures/real-file.js` and only run when an environment variable names
  * a file.
  *
- * @module dsh-plugin-figma/test/fixtures/synthetic
+ * @module figma-mcp-dsh/test/fixtures/synthetic
  */
 
 /** A node id that appears nowhere real. */

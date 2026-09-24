@@ -82,7 +82,7 @@ cd ~/.dsh/profiles/web && pnpm add link:/Users/n109meow/Documents/DeepSeek/Figma
 #    在 ~/.dsh/profiles/web/cordis.patch.yml 追加：
 #      - insert:
 #          - id: figma
-#            name: 'dsh-plugin-figma'
+#            name: 'figma-mcp-dsh'
 
 # 3) 每次改装配后跑这个，四项必须全绿
 cd /Users/n109meow/Documents/DeepSeek/Figma-MCP-dsh && bash scripts/verify-wiring.sh
@@ -157,8 +157,8 @@ Figma 的 paint 是：
 ## 3. 目录与模块职责
 
 ```
-dsh-plugin-figma/                 # 仓库根 = 包根（npm + GitHub 双通道分发要求）
-├── package.json                  # name: dsh-plugin-figma ✅ 已就位
+figma-mcp-dsh/                 # 仓库根 = 包根（npm + GitHub 双通道分发要求）
+├── package.json                  # name: figma-mcp-dsh ✅ 已就位
 ├── src/
 │   ├── core/                     # ⛔ 零 DSH 依赖、⛔ 不出现 ctx（CI 门禁，见 §8）
 │   │   ├── types.ts              # 所有类型定义（本文件无运行时逻辑）

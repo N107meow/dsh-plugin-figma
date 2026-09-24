@@ -40,7 +40,7 @@ body:
     attributes:
       label: 插件版本 / 安装方式
       description: 例如 `0.1.0`，以及是 npm、`link:` 还是 GitHub 装的
-      placeholder: 0.1.0（pnpm add link:~/dsh-plugin-figma）
+      placeholder: 0.1.0（pnpm add link:~/figma-mcp-dsh）
     validations:
       required: false
 

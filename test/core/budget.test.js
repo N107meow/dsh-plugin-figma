@@ -5,7 +5,7 @@
  * and an oversized projection always leaves the model with something usable —
  * a skeleton plus a path, never a failure and never a context blowout.
  *
- * @module dsh-plugin-figma/test/core/budget
+ * @module figma-mcp-dsh/test/core/budget
  */
 
 import assert from 'node:assert/strict'

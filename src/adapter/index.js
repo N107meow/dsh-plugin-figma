@@ -6,7 +6,7 @@
  * owned by the plugin's fiber through `ctx.effect()` or `ctx.tools.register()`
  * — which is what makes unloading this plugin leave nothing behind.
  *
- * @module dsh-plugin-figma/adapter
+ * @module figma-mcp-dsh/adapter
  */
 
 import { createTokenSource, isCredentialRefName } from '../core/auth.js'
@@ -52,7 +52,7 @@ export function apply(ctx, config) {
 
   if (!isCredentialRefName(credentialName)) {
     console.warn(
-      `[dsh-plugin-figma] credentialRef ${JSON.stringify(settings.credentialRef)} is not a valid credential name ` +
+      `[figma-mcp-dsh] credentialRef ${JSON.stringify(settings.credentialRef)} is not a valid credential name ` +
         '(expected a POSIX identifier such as FIGMA_TOKEN); the plugin is loaded but every read will report an ' +
         'unconfigured credential.',
     )
@@ -77,7 +77,7 @@ export function apply(ctx, config) {
     getFs: () => ctx.get('fs'),
     getAttachments: () => ctx.get('attachments'),
     spoolDir: String(settings.spoolDir),
-    warn: (message) => console.warn(`[dsh-plugin-figma] ${message}`),
+    warn: (message) => console.warn(`[figma-mcp-dsh] ${message}`),
   })
 
   const provider = createProvider({
@@ -99,9 +99,9 @@ export function apply(ctx, config) {
   registerFigmaTools(ctx, { provider })
 
   ctx.effect(() => {
-    console.log(`[dsh-plugin-figma] active — registered ${confirmRegistered(ctx).join(', ')}`)
+    console.log(`[figma-mcp-dsh] active — registered ${confirmRegistered(ctx).join(', ')}`)
     return () => {
-      console.log('[dsh-plugin-figma] inactive')
+      console.log('[figma-mcp-dsh] inactive')
     }
   })
 }

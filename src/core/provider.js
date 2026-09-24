@@ -24,7 +24,7 @@
  *   budget           → tighten once, then skeleton + spill to disk
  * ```
  *
- * @module dsh-plugin-figma/core/provider
+ * @module figma-mcp-dsh/core/provider
  */
 
 import { hashSecret, Redactor } from './auth.js'

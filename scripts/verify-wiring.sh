@@ -89,7 +89,7 @@ wait "$BOOT" 2>/dev/null || true
 
 # The activation line lists the names the registry confirmed, so a match is
 # evidence that both tools really landed in the registry.
-if grep -q "\[dsh-plugin-figma\] active — registered figma_capabilities, figma_call" "$LOG"; then
+if grep -q "\[figma-mcp-dsh\] active — registered figma_capabilities, figma_call" "$LOG"; then
   echo "    OK  plugin loaded, applied, and both tools are registered"
 else
   echo "    FAIL: no activation marker showing both tools"
@@ -99,9 +99,9 @@ fi
 if grep -qi "cannot find\|ERR_MODULE\|failed to load" "$LOG"; then
   echo "    FAIL: load error"; grep -i "cannot find\|ERR_MODULE\|failed to load" "$LOG" | sed 's/^/    | /'; exit 1
 fi
-if grep -qi "dsh-plugin-figma.*\(error\|failed\)" "$LOG"; then
+if grep -qi "figma-mcp-dsh.*\(error\|failed\)" "$LOG"; then
   echo "    FAIL: the plugin reported an error while activating"
-  grep -i "dsh-plugin-figma" "$LOG" | sed 's/^/    | /'
+  grep -i "figma-mcp-dsh" "$LOG" | sed 's/^/    | /'
   exit 1
 fi
 echo "    OK  no load errors"

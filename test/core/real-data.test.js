@@ -19,7 +19,7 @@
  * Set `FIGMA_TEST_NODE_ID_B` to the contrasting node (the dark or light half of
  * a theme pair) to enable the theme comparison.
  *
- * @module dsh-plugin-figma/test/core/real-data
+ * @module figma-mcp-dsh/test/core/real-data
  */
 
 import assert from 'node:assert/strict'

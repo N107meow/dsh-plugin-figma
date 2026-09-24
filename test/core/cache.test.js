@@ -6,7 +6,7 @@
  * request, so a `304` branch would be unreachable code that looks like an
  * optimization — and someone would eventually "fix" it back in.
  *
- * @module dsh-plugin-figma/test/core/cache
+ * @module figma-mcp-dsh/test/core/cache
  */
 
 import assert from 'node:assert/strict'

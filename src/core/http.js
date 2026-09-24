@@ -12,7 +12,7 @@
  * 3. **Every outgoing diagnostic is redacted.** A network failure message can
  *    echo a URL; a redactor is applied before the message escapes.
  *
- * @module dsh-plugin-figma/core/http
+ * @module figma-mcp-dsh/core/http
  */
 
 /**

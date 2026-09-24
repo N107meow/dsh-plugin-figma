@@ -18,7 +18,7 @@
  * listed in `DISCARDED_NODE_FIELDS` so the next reader does not have to guess
  * whether an omission was deliberate.
  *
- * @module dsh-plugin-figma/core/projection
+ * @module figma-mcp-dsh/core/projection
  */
 
 /** Node fields kept verbatim. Everything not listed here or handled explicitly is dropped. */

@@ -9,7 +9,7 @@
  * `src/core/**` may import a host package or take a plugin context. This file
  * is the vocabulary half of that boundary.
  *
- * @module dsh-plugin-figma/core/types
+ * @module figma-mcp-dsh/core/types
  */
 
 /**

@@ -6,7 +6,7 @@
  * the dedicated endpoint lists only what a team published to a library, and a
  * file's own styles need not be published.
  *
- * @module dsh-plugin-figma/core/specs/styles
+ * @module figma-mcp-dsh/core/specs/styles
  */
 
 import { READ_ONLY_METHOD } from '../capability.js'

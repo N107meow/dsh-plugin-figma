@@ -16,7 +16,7 @@
  * For the same reason the removed identifiers below are assembled from pieces:
  * quoting one verbatim would make this file fail the scan it is testing.
  *
- * @module dsh-plugin-figma/test/core/secrets
+ * @module figma-mcp-dsh/test/core/secrets
  */
 
 import assert from 'node:assert/strict'

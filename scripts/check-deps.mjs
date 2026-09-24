@@ -17,7 +17,7 @@
  *
  * See docs/P0-IMPLEMENTATION.md §1.0.
  *
- * @module dsh-plugin-figma/scripts/check-deps
+ * @module figma-mcp-dsh/scripts/check-deps
  */
 
 import { readFileSync } from 'node:fs'
